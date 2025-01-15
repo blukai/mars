@@ -88,6 +88,10 @@ impl<T> Default for Handle<T> {
     }
 }
 
+// NOTE: handles don't carry data. it is safet to send/share them between threads.
+unsafe impl<T> Send for Handle<T> {}
+unsafe impl<T> Sync for Handle<T> {}
+
 impl<T> Handle<T> {
     /// Useful for two-phase initialization.
     ///
