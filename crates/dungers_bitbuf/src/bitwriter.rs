@@ -12,9 +12,6 @@ pub struct BitWriter<'a> {
 impl<'a> BitWriter<'a> {
     #[inline]
     pub fn new(buf: &'a mut [u8]) -> Self {
-        // make sure that alignment is correct.
-        debug_assert!(buf.len() % 8 == 0);
-
         Self {
             data_bits: buf.len() << 3,
             // SAFETY: transmuting data into a slice of u64s is safe here because BitWriter

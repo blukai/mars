@@ -77,16 +77,10 @@ impl<'a> Charsor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
-    use static_assertions::const_assert;
-
     use super::*;
 
     const INPUT: &str = "こんにちは";
-    const_assert!(INPUT.len() > 2);
-    lazy_static! {
-        static ref INPUT_CHARS: Vec<char> = INPUT.chars().collect();
-    }
+    const INPUT_CHARS: &[char] = &['こ', 'ん', 'に', 'ち', 'は'];
 
     #[test]
     fn test_peek() {
@@ -114,10 +108,7 @@ mod tests {
     #[test]
     fn test_eat_while() {
         const PREFIX: &str = "    ";
-        assert!(PREFIX.len() > 0);
-
         let input = format!("{PREFIX}{INPUT}");
-
         let mut cc = Charsor::new(&input);
         cc.eat_while(|ch| ch.is_whitespace());
         assert_eq!(cc.offset(), PREFIX.len());
