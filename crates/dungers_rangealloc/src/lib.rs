@@ -1,6 +1,6 @@
 //! inspired by <https://github.com/gfx-rs/range-alloc>, but provides very different api.
 use std::{
-    fmt::Debug,
+    error, fmt,
     ops::{Add, AddAssign, Range, Sub, SubAssign},
 };
 
@@ -8,9 +8,16 @@ use std::{
 /// exhaustion or to something wrong when combining the given input arguments with this allocator.
 ///
 /// it is modelled after [`std::alloc::AllocError`].
-#[derive(Debug, thiserror::Error, Copy, Clone, PartialEq, Eq)]
-#[error("range allocation failed")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RangeAllocError;
+
+impl error::Error for RangeAllocError {}
+
+impl fmt::Display for RangeAllocError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("range allocation failed")
+    }
+}
 
 #[derive(Debug)]
 pub struct RangeAlloc<T> {
@@ -27,7 +34,7 @@ pub struct BestFit<T> {
 
 impl<T> RangeAlloc<T>
 where
-    T: Debug
+    T: fmt::Debug
         + Clone
         + Copy
         // NOTE: default is needed to be able to get zero.
@@ -40,12 +47,17 @@ where
         + Ord,
 {
     pub fn new(full_range: Range<T>) -> Self {
-        assert!(full_range.start < full_range.end);
+        // NOTE: <= because it's not invalid to initialize with 0..0.
+        assert!(full_range.start <= full_range.end);
 
         Self {
             full_range: full_range.clone(),
             free_ranges: vec![full_range],
         }
+    }
+
+    pub fn full_range(&self) -> &Range<T> {
+        &self.full_range
     }
 
     // NOTE: find_best_fit exists because of the idea where it might be appropriate to have a list
@@ -172,6 +184,24 @@ where
 
         self.defragment_free_ranges();
     }
+
+    pub fn grow(&mut self, new_end: T) {
+        let old_end = self.full_range.end;
+
+        assert!(new_end > old_end);
+
+        if let Some(last_range) = self
+            .free_ranges
+            .last_mut()
+            .filter(|last_range| last_range.end == old_end)
+        {
+            last_range.end = new_end;
+        } else {
+            self.free_ranges.push(old_end..new_end);
+        }
+
+        self.full_range.end = new_end;
+    }
 }
 
 #[cfg(test)]
@@ -251,5 +281,36 @@ mod tests {
         let mut ra = RangeAlloc::new(0..100 as u32);
         assert_eq!(ra.allocate(100), Ok(0..100));
         assert_eq!(ra.allocate(1), Err(RangeAllocError));
+    }
+
+    #[test]
+    fn grow_extends_last_free_range() {
+        let mut ra = RangeAlloc::new(0..100 as u32);
+
+        let _ = ra.allocate(50).unwrap();
+        assert_eq!(&ra.free_ranges, &[50..100]);
+
+        ra.grow(150);
+        assert_eq!(&ra.free_ranges, &[50..150]);
+        assert_eq!(ra.full_range, 0..150);
+    }
+
+    #[test]
+    fn grow_adds_new_free_range() {
+        let mut ra = RangeAlloc::new(0..100 as u32);
+
+        let _ = ra.allocate(100).unwrap();
+        assert!(ra.free_ranges.is_empty());
+
+        ra.grow(200);
+        assert_eq!(&ra.free_ranges, &[100..200]);
+        assert_eq!(ra.full_range, 0..200);
+    }
+
+    #[test]
+    #[should_panic]
+    fn grow_panics_on_invalid_new_end() {
+        let mut ra = RangeAlloc::new(0..100 as u32);
+        ra.grow(50);
     }
 }

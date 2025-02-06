@@ -208,9 +208,6 @@ version = "0.0.0"
 [[package]]
 name = "dungers_rangealloc"
 version = "0.0.0"
-dependencies = [
- "thiserror",
-]
 
 [[package]]
 name = "dungers_varint"
