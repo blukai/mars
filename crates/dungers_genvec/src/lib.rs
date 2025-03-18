@@ -18,6 +18,7 @@ impl Generation {
     const DANGLING: Self = Self(unsafe { NonZeroU32::new_unchecked(u32::MAX) });
 
     #[inline]
+    #[expect(dead_code)]
     fn is_dangling(&self) -> bool {
         self.eq(&Self::DANGLING)
     }
@@ -97,6 +98,9 @@ impl<T> Handle<T> {
     ///
     /// In two-phase initialization, a dangling handle is created first, and later replaced
     /// with a valid handle after the associated entry has been initialized.
+    ///
+    /// It is better to avoid using this value to represent the absence of a handle, prefer
+    /// `Option<Handle<T>>`.
     pub const DANGLING: Self = Self {
         index: 0,
         generation: Generation::DANGLING,
@@ -115,6 +119,18 @@ impl<T> Handle<T> {
             generation,
             type_marker: PhantomData,
         }
+    }
+
+    #[inline]
+    pub fn as_raw(&self) -> u64 {
+        ((self.generation.0.get() as u64) << 32) | (self.index as u64)
+    }
+
+    #[inline]
+    pub fn from_raw(raw: u64) -> Option<Self> {
+        let index = raw as u32;
+        let generation = Generation(NonZeroU32::new((raw >> 32) as u32)?);
+        Some(Self::new(index, generation))
     }
 }
 
@@ -467,5 +483,13 @@ mod tests {
         let mut gv = GenVec::default();
         let handle = gv.insert("hello");
         gv.take(handle);
+    }
+
+    #[test]
+    fn test_raw_handle_roundtrip() {
+        let handle = Handle::<()>::new(42, Generation::new());
+        let raw = handle.as_raw();
+        let reconstructed = Handle::<()>::from_raw(raw).unwrap();
+        assert_eq!(reconstructed, handle);
     }
 }
