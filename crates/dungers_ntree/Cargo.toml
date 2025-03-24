@@ -1,0 +1,7 @@
+[package]
+name = "dungers_ntree"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+dungers_genvec.workspace = true
