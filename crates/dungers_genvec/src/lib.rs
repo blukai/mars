@@ -247,7 +247,7 @@ impl<T: 'static> Handle<T> {
     /// If this function is called with AnyHandle that is dangling or that was created with type
     /// other then `T` - `None` will be returned.
     #[inline]
-    pub fn from_any(any_handle: AnyHandle) -> Option<Self> {
+    pub fn try_from_any(any_handle: AnyHandle) -> Option<Self> {
         if any_handle.type_id == TypeId::of::<T>() {
             Some(Handle {
                 index: any_handle.index,
@@ -623,7 +623,7 @@ mod tests {
     fn test_any_handle_roundtrip() {
         let handle = Handle::<()>::new(42, Generation::new());
         let any_handle = handle.as_any();
-        let reconstructed = Handle::<()>::from_any(any_handle).unwrap();
+        let reconstructed = Handle::<()>::try_from_any(any_handle).unwrap();
         assert_eq!(reconstructed, handle);
     }
 }
