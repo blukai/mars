@@ -1,6 +1,8 @@
 use std::{
+    any::TypeId,
     hash::{Hash, Hasher},
     marker::PhantomData,
+    mem,
     num::NonZeroU32,
 };
 
@@ -31,6 +33,97 @@ impl Generation {
     #[inline]
     fn try_bump(self) -> Option<Self> {
         self.0.checked_add(1).map(Self)
+    }
+}
+
+/// Type-erased handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ErasedHandle {
+    index: u32,
+    generation: Generation,
+}
+
+impl Default for ErasedHandle {
+    #[inline]
+    fn default() -> Self {
+        Self::DANGLING
+    }
+}
+
+unsafe impl Send for ErasedHandle {}
+unsafe impl Sync for ErasedHandle {}
+
+impl ErasedHandle {
+    /// Useful for two-phase initialization.
+    ///
+    /// In two-phase initialization, a dangling handle is created first, and later replaced
+    /// with a valid handle after the associated entry has been initialized.
+    ///
+    /// It is better to avoid using this value to represent the absence of a handle, prefer
+    /// `Option<ErasedHandle>`.
+    pub const DANGLING: Self = Self {
+        index: 0,
+        generation: Generation::DANGLING,
+    };
+
+    #[inline]
+    pub fn is_dangling(&self) -> bool {
+        self.eq(&Self::DANGLING)
+    }
+}
+
+// Yikes! `AnyHandle` is fat, there's `TypeId` within (which takes up 16 bytes alone).
+//
+// `AnyHandle` stores `TypeId` which implements `Hash`, `PartialOrd`, and `Ord`, it is worth noting
+// that the hashes and ordering will vary between Rust releases. Beware of relying on them inside
+// of your code!
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AnyHandle {
+    index: u32,
+    generation: Generation,
+    type_id: TypeId,
+}
+
+impl Default for AnyHandle {
+    #[inline]
+    fn default() -> Self {
+        Self::DANGLING
+    }
+}
+
+unsafe impl Send for AnyHandle {}
+unsafe impl Sync for AnyHandle {}
+
+impl AnyHandle {
+    /// Useful for two-phase initialization.
+    ///
+    /// In two-phase initialization, a dangling handle is created first, and later replaced
+    /// with a valid handle after the associated entry has been initialized.
+    ///
+    /// It is better to avoid using this value to represent the absence of a handle, prefer
+    /// `Option<AnyHandle>`.
+    pub const DANGLING: Self = Self {
+        index: 0,
+        generation: Generation::DANGLING,
+        type_id: unsafe { mem::zeroed() },
+    };
+
+    #[inline]
+    pub fn is_dangling(&self) -> bool {
+        self.eq(&Self::DANGLING)
+    }
+
+    #[inline]
+    pub fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+
+    #[inline]
+    pub fn as_erased(&self) -> ErasedHandle {
+        ErasedHandle {
+            index: self.index,
+            generation: self.generation,
+        }
     }
 }
 
@@ -122,15 +215,48 @@ impl<T> Handle<T> {
     }
 
     #[inline]
-    pub fn as_raw(&self) -> u64 {
-        ((self.generation.0.get() as u64) << 32) | (self.index as u64)
+    pub fn as_erased(&self) -> ErasedHandle {
+        ErasedHandle {
+            index: self.index,
+            generation: self.generation,
+        }
     }
 
+    /// Make sure you know what you are doing with this, there are no checks that will tell you
+    /// otherwise.
     #[inline]
-    pub fn from_raw(raw: u64) -> Option<Self> {
-        let index = raw as u32;
-        let generation = Generation(NonZeroU32::new((raw >> 32) as u32)?);
-        Some(Self::new(index, generation))
+    pub fn from_erased(erased_handle: ErasedHandle) -> Self {
+        Handle {
+            index: erased_handle.index,
+            generation: erased_handle.generation,
+            type_marker: PhantomData,
+        }
+    }
+}
+
+impl<T: 'static> Handle<T> {
+    #[inline]
+    pub fn as_any(&self) -> AnyHandle {
+        AnyHandle {
+            index: self.index,
+            generation: self.generation,
+            type_id: TypeId::of::<T>(),
+        }
+    }
+
+    /// If this function is called with AnyHandle that is dangling or that was created with type
+    /// other then `T` - `None` will be returned.
+    #[inline]
+    pub fn from_any(any_handle: AnyHandle) -> Option<Self> {
+        if any_handle.type_id == TypeId::of::<T>() {
+            Some(Handle {
+                index: any_handle.index,
+                generation: any_handle.generation,
+                type_marker: PhantomData,
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -486,10 +612,18 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_handle_roundtrip() {
+    fn test_erased_handle_roundtrip() {
         let handle = Handle::<()>::new(42, Generation::new());
-        let raw = handle.as_raw();
-        let reconstructed = Handle::<()>::from_raw(raw).unwrap();
+        let erased_handle = handle.as_erased();
+        let reconstructed = Handle::<()>::from_erased(erased_handle);
+        assert_eq!(reconstructed, handle);
+    }
+
+    #[test]
+    fn test_any_handle_roundtrip() {
+        let handle = Handle::<()>::new(42, Generation::new());
+        let any_handle = handle.as_any();
+        let reconstructed = Handle::<()>::from_any(any_handle).unwrap();
         assert_eq!(reconstructed, handle);
     }
 }
