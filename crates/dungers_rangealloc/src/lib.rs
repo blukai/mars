@@ -202,6 +202,15 @@ where
 
         self.full_range.end = new_end;
     }
+
+    pub fn clear(&mut self) {
+        self.free_ranges.clear();
+        self.free_ranges.push(self.full_range.clone());
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.free_ranges.len() == 1 && self.free_ranges[0] == self.full_range
+    }
 }
 
 #[cfg(test)]
