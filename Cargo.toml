@@ -18,7 +18,6 @@ dungers_varint = { path = "crates/dungers_varint" }
 # external
 criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion-cycles-per-byte = "0.6.1"
-thiserror = "1.0.63"
 
 [package]
 name = "dungers"

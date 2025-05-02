@@ -263,14 +263,14 @@ impl<'a> BitReader<'a> {
     where
         T: From<u8> + std::ops::BitOrAssign + std::ops::Shl<usize, Output = T>,
     {
-        let byte = self.read_byte()?;
+        let byte = self.read_byte().map_err(ReadVarintError::Overflow)?;
         if (byte & CONTINUE_BIT) == 0 {
             return Ok(T::from(byte));
         }
 
         let mut value = T::from(byte & 0x7f);
         for count in 1..=max_varint_size::<T>() {
-            let byte = self.read_byte()?;
+            let byte = self.read_byte().map_err(ReadVarintError::Overflow)?;
             value |= (T::from(byte & PAYLOAD_BITS)) << (count * 7);
             if (byte & CONTINUE_BIT) == 0 {
                 return Ok(value);

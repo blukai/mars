@@ -1,15 +1,24 @@
-use std::io;
+use std::{error, fmt, io};
 
 pub const CONTINUE_BIT: u8 = 0x80;
 pub const PAYLOAD_BITS: u8 = 0x7f;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ReadVarintError {
-    #[error(transparent)]
-    IoError(#[from] io::Error),
-    #[error("malformed varint")]
+    IoError(io::Error),
     MalformedVarint,
 }
+
+impl fmt::Display for ReadVarintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IoError(err) => err.fmt(f),
+            Self::MalformedVarint => write!(f, "malformed varint"),
+        }
+    }
+}
+
+impl error::Error for ReadVarintError {}
 
 // ZigZag Transform:  Encodes signed integers so that they can be effectively
 // used with varint encoding.
@@ -113,7 +122,7 @@ where
     let mut buf = [0u8; 1];
 
     // NOTE: small values are more common then large ones, this is a performance win.
-    rdr.read_exact(&mut buf)?;
+    rdr.read_exact(&mut buf).map_err(ReadVarintError::IoError)?;
     let byte = unsafe { *buf.get_unchecked(0) };
     if (byte & CONTINUE_BIT) == 0 {
         return Ok((T::from(byte), 1));
@@ -121,7 +130,7 @@ where
 
     let mut value = T::from(byte & PAYLOAD_BITS);
     for count in 1..max_varint_size::<T>() {
-        rdr.read_exact(&mut buf)?;
+        rdr.read_exact(&mut buf).map_err(ReadVarintError::IoError)?;
         let byte = unsafe { *buf.get_unchecked(0) };
         value |= (T::from(byte & PAYLOAD_BITS)) << (count * 7);
         if (byte & CONTINUE_BIT) == 0 {
