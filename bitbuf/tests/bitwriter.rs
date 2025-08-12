@@ -1,4 +1,4 @@
-use dungers_bitbuf::BitWriter;
+use bitbuf::BitWriter;
 
 #[test]
 fn test_write_ubit64_extra_bits_erasure() {

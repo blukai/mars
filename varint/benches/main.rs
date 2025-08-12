@@ -2,7 +2,7 @@ use std::{hint::black_box, io::Cursor};
 
 use criterion::{BenchmarkId, Criterion};
 use criterion_cycles_per_byte::CyclesPerByte;
-use dungers_varint::{max_varint_size, read_uvarint64, write_uvarint64};
+use varint::{max_varint_size, read_uvarint64, write_uvarint64};
 
 const U64_VALUES: &[u64] = &[42, 255, u64::MAX / 2, u64::MAX];
 

@@ -1,9 +1,9 @@
 use std::hint::black_box;
 
+use bitbuf::{BitReader, BitWriter};
 use criterion::{BenchmarkId, Criterion};
 use criterion_cycles_per_byte::CyclesPerByte;
-use dungers_bitbuf::{BitReader, BitWriter};
-use dungers_varint::max_varint_size;
+use varint::max_varint_size;
 
 const U64_VALUES: &[u64] = &[42, 255, u64::MAX / 2, u64::MAX];
 

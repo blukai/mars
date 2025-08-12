@@ -1,4 +1,4 @@
-use dungers_bitbuf::{BitReader, BitWriter};
+use bitbuf::{BitReader, BitWriter};
 
 // NOTE: tests are stolen from
 // https://github.com/rust-lang/rust/blob/e5b3e68abf170556b9d56c6f9028318e53c9f06b/compiler/rustc_serialize/tests/leb128.rs

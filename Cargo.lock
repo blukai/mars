@@ -30,6 +30,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 
 [[package]]
+name = "bitbuf"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "criterion-cycles-per-byte",
+ "varint",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -46,6 +55,10 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "charsor"
+version = "0.0.0"
 
 [[package]]
 name = "ciborium"
@@ -177,50 +190,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
 
 [[package]]
-name = "dungers"
-version = "0.0.0"
-dependencies = [
- "dungers_bitbuf",
- "dungers_charsor",
- "dungers_genvec",
- "dungers_rangealloc",
- "dungers_varint",
-]
-
-[[package]]
-name = "dungers_bitbuf"
-version = "0.0.0"
-dependencies = [
- "criterion",
- "criterion-cycles-per-byte",
- "dungers_varint",
-]
-
-[[package]]
-name = "dungers_charsor"
-version = "0.0.0"
-
-[[package]]
-name = "dungers_genvec"
-version = "0.0.0"
-
-[[package]]
-name = "dungers_rangealloc"
-version = "0.0.0"
-
-[[package]]
-name = "dungers_varint"
-version = "0.0.0"
-dependencies = [
- "criterion",
- "criterion-cycles-per-byte",
-]
-
-[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
+
+[[package]]
+name = "genvec"
+version = "0.0.0"
 
 [[package]]
 name = "half"
@@ -359,6 +336,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rangealloc"
+version = "0.0.0"
+
+[[package]]
 name = "rayon"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -480,6 +461,14 @@ name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+
+[[package]]
+name = "varint"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "criterion-cycles-per-byte",
+]
 
 [[package]]
 name = "walkdir"

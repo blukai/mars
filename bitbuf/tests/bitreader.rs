@@ -1,4 +1,4 @@
-use dungers_bitbuf::BitReader;
+use bitbuf::BitReader;
 
 #[test]
 fn test_read_ubit64_overflow() {

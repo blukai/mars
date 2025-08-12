@@ -1,5 +1,5 @@
 #[cfg(feature = "varint")]
-use dungers_varint::{zigzag_encode64, CONTINUE_BIT, PAYLOAD_BITS};
+use varint::{zigzag_encode64, CONTINUE_BIT, PAYLOAD_BITS};
 
 use crate::{OverflowError, BIT_WRITE_MASKS, EXTRA_MASKS};
 

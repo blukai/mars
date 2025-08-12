@@ -1,8 +1,8 @@
 use std::hint::black_box;
 
+use bitbuf::{BitReader, BitWriter};
 use criterion::{BenchmarkId, Criterion};
 use criterion_cycles_per_byte::CyclesPerByte;
-use dungers_bitbuf::{BitReader, BitWriter};
 
 const U64_INPUTS: &[&(u64, usize)] = &[&(0xdeadbeefcafebabe, 64), &(0xdeadbeef, 32), &(0xaa, 8)];
 

@@ -1,7 +1,5 @@
 #[cfg(feature = "varint")]
-use dungers_varint::{
-    max_varint_size, zigzag_decode32, zigzag_decode64, CONTINUE_BIT, PAYLOAD_BITS,
-};
+use varint::{max_varint_size, zigzag_decode32, zigzag_decode64, CONTINUE_BIT, PAYLOAD_BITS};
 
 #[cfg(feature = "varint")]
 use crate::ReadVarintError;
