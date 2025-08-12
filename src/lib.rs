@@ -7,9 +7,6 @@ pub use dungers_charsor as charsor;
 #[cfg(feature = "genvec")]
 pub use dungers_genvec as genvec;
 
-#[cfg(feature = "ntree")]
-pub use dungers_ntree as ntree;
-
 #[cfg(feature = "rangealloc")]
 pub use dungers_rangealloc as rangealloc;
 

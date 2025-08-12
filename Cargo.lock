@@ -183,7 +183,6 @@ dependencies = [
  "dungers_bitbuf",
  "dungers_charsor",
  "dungers_genvec",
- "dungers_ntree",
  "dungers_rangealloc",
  "dungers_varint",
 ]
@@ -204,13 +203,6 @@ version = "0.0.0"
 [[package]]
 name = "dungers_genvec"
 version = "0.0.0"
-
-[[package]]
-name = "dungers_ntree"
-version = "0.0.0"
-dependencies = [
- "dungers_genvec",
-]
 
 [[package]]
 name = "dungers_rangealloc"

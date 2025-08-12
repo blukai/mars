@@ -12,7 +12,6 @@ edition = "2021"
 dungers_bitbuf = { path = "crates/dungers_bitbuf" }
 dungers_charsor = { path = "crates/dungers_charsor" }
 dungers_genvec = { path = "crates/dungers_genvec" }
-dungers_ntree = { path = "crates/dungers_ntree" }
 dungers_rangealloc = { path = "crates/dungers_rangealloc" }
 dungers_varint = { path = "crates/dungers_varint" }
 # external
@@ -28,7 +27,6 @@ edition.workspace = true
 dungers_bitbuf = { workspace = true, optional = true }
 dungers_charsor = { workspace = true, optional = true }
 dungers_genvec = { workspace = true, optional = true }
-dungers_ntree = { workspace = true, optional = true }
 dungers_rangealloc = { workspace = true, optional = true }
 dungers_varint = { workspace = true, optional = true }
 
@@ -36,6 +34,5 @@ dungers_varint = { workspace = true, optional = true }
 bitbuf = ["dep:dungers_bitbuf"]
 charsor = ["dep:dungers_charsor"]
 genvec = ["dep:dungers_genvec"]
-ntree = ["dep:dungers_ntree"]
 rangealloc = ["dep:dungers_rangealloc"]
 varint = ["dep:dungers_varint", "dungers_bitbuf?/varint"]
