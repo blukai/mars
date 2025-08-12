@@ -408,6 +408,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "scopeguard"
+version = "0.0.0"
+
+[[package]]
 name = "serde"
 version = "1.0.207"
 source = "registry+https://github.com/rust-lang/crates.io-index"
