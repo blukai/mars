@@ -4,6 +4,7 @@ members = [
   "bitbuf",
   "charsor",
   "genvec",
+  "nohash",
   "rangealloc",
   "varint",
 ]
@@ -18,6 +19,7 @@ criterion-cycles-per-byte = "0.6.1"
 bitbuf = { path = "bitbuf" }
 charsor = { path = "charsor" }
 genvec = { path = "genvec" }
+nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 varint = { path = "varint" }
 

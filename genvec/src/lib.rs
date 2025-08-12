@@ -134,10 +134,7 @@ pub struct Handle<T> {
     type_marker: PhantomData<T>,
 }
 
-// NOTE: traits down below for `Handle` are not derived, but implemented by hand because deriving
-// these traits would require `T` to implement them, which is unnecessary since `T` is merely a type
-// marker.
-
+// @BlindDerive
 impl<T> std::fmt::Debug for Handle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Handle")
@@ -148,6 +145,7 @@ impl<T> std::fmt::Debug for Handle<T> {
     }
 }
 
+// @BlindDerive
 impl<T> Clone for Handle<T> {
     #[inline]
     fn clone(&self) -> Self {
@@ -155,8 +153,10 @@ impl<T> Clone for Handle<T> {
     }
 }
 
+// @BlindDerive
 impl<T> Copy for Handle<T> {}
 
+// @BlindDerive
 impl<T> PartialEq for Handle<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -164,8 +164,10 @@ impl<T> PartialEq for Handle<T> {
     }
 }
 
+// @BlindDerive
 impl<T> Eq for Handle<T> {}
 
+// @BlindDerive
 impl<T> Hash for Handle<T> {
     // NOTE: this is very non collision free hash
     #[inline]
@@ -175,6 +177,7 @@ impl<T> Hash for Handle<T> {
     }
 }
 
+// @BlindDerive
 impl<T> Default for Handle<T> {
     #[inline]
     fn default() -> Self {
@@ -321,6 +324,7 @@ pub struct GenVec<T> {
     free_indices: Vec<u32>,
 }
 
+// @BlindDerive
 impl<T> Default for GenVec<T> {
     fn default() -> Self {
         Self {
