@@ -42,6 +42,11 @@ impl<'a> BitWriter<'a> {
         (self.cur_bit + 7) >> 3
     }
 
+    /// returns a reference to the underlying buffer.
+    pub fn get_data(&self) -> &[u8] {
+        unsafe { std::mem::transmute(&*self.data) }
+    }
+
     /// seek to a specific bit.
     pub fn seek(&mut self, bit: usize) -> Result<(), OverflowError> {
         if bit > self.data_bits {
@@ -62,16 +67,11 @@ impl<'a> BitWriter<'a> {
     }
 
     #[inline]
-    pub fn write_ubit64(&mut self, data: u64, n: usize) -> Result<(), OverflowError> {
-        // make sure that the requested number of bits to write is in bounds of u64.
-        debug_assert!(n <= 64);
-
-        if self.cur_bit + n > self.data_bits {
-            return Err(OverflowError);
-        }
+    pub unsafe fn write_ubit64_unchecked(&mut self, data: u64, num_bits: usize) {
+        debug_assert!(num_bits <= 64);
 
         // erase bits at n and higher positions
-        let data = data & EXTRA_MASKS[n];
+        let data = data & EXTRA_MASKS[num_bits];
 
         let block1_idx = self.cur_bit >> 6;
         let bit_offset = self.cur_bit & 63;
@@ -79,15 +79,15 @@ impl<'a> BitWriter<'a> {
         // SAFETY: assert and check above ensure that we'll not go out of bounds.
 
         let mut block1 = unsafe { *self.data.get_unchecked(block1_idx) };
-        block1 &= BIT_WRITE_MASKS[bit_offset][n];
+        block1 &= BIT_WRITE_MASKS[bit_offset][num_bits];
         block1 |= data << bit_offset;
         unsafe { *self.data.get_unchecked_mut(block1_idx) = block1 };
 
         // did it span a block?
         let bits_written = 64 - bit_offset;
-        if bits_written < n {
+        if bits_written < num_bits {
             let data = data >> bits_written;
-            let n = n - bits_written;
+            let n = num_bits - bits_written;
 
             let block2_idx = block1_idx + 1;
 
@@ -97,13 +97,59 @@ impl<'a> BitWriter<'a> {
             unsafe { *self.data.get_unchecked_mut(block2_idx) = block2 };
         }
 
-        self.cur_bit += n;
+        self.cur_bit += num_bits;
+    }
+
+    #[inline]
+    pub fn write_ubit64(&mut self, data: u64, num_bits: usize) -> Result<(), OverflowError> {
+        debug_assert!(num_bits <= 64);
+
+        if self.cur_bit + num_bits > self.data_bits {
+            return Err(OverflowError);
+        }
+
+        // SAFETY: assert and check above ensure that we'll not go out of bounds.
+        unsafe { self.write_ubit64_unchecked(data, num_bits) };
 
         Ok(())
     }
 
     pub fn write_byte(&mut self, data: u8) -> Result<(), OverflowError> {
         self.write_ubit64(data as u64, 8)
+    }
+
+    pub fn write_bits(&mut self, data: &[u8], num_bits: usize) -> Result<(), OverflowError> {
+        if self.cur_bit + num_bits > self.data_bits {
+            return Err(OverflowError);
+        }
+
+        let mut pos = 0;
+        let mut bits_left = num_bits;
+
+        // align to u64 boundary
+        while (data.as_ptr() as usize & 7) != 0 && bits_left >= 8 {
+            unsafe { self.write_ubit64_unchecked(*data.get_unchecked(pos) as u64, 8) };
+            pos += 1;
+            bits_left -= 8;
+        }
+
+        // if bits_left >= 64 {
+        //     todo!()
+        // }
+
+        // write remaining bytes
+        while bits_left >= 8 {
+            unsafe { self.write_ubit64_unchecked(*data.get_unchecked(pos) as u64, 8) };
+            pos += 1;
+            bits_left -= 8;
+        }
+
+        // write remaining bits
+        if bits_left > 0 {
+            unsafe { self.write_ubit64_unchecked(*data.get_unchecked(pos) as u64, bits_left) };
+        }
+
+        Ok(())
     }
 
     // NOTE: ref impl for varints:

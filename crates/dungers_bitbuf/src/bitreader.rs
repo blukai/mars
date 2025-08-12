@@ -169,6 +169,7 @@ impl<'a> BitReader<'a> {
 
         // read large "blocks"/chunks first
         while bits_left >= 64 {
+            // TODO: can copy if aligned
             *(out as *mut u64) = self.read_ubit64_unchecked(64);
             out = out.add(8);
             bits_left -= 64;

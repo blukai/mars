@@ -48,3 +48,29 @@ fn test_write_ubit64_spanning_blocks() {
     let block2 = u64::from_le_bytes(buf[8..16].try_into().unwrap());
     assert_eq!(block2, 0xa);
 }
+
+#[test]
+fn test_write_bits() {
+    let mut buf = [0u8; 4];
+    let mut bw = BitWriter::new(&mut buf);
+
+    // read 3 bits
+    bw.write_bits(&[0b011], 3).unwrap();
+    assert_eq!(bw.get_data()[0], 0b011);
+
+    // write 5 bits
+    bw.write_bits(&[0b10110], 5).unwrap();
+    assert_eq!(bw.get_data()[0], 0b10110011);
+
+    // write 8 bits
+    bw.write_bits(&[0b01011100], 8).unwrap();
+    assert_eq!(bw.get_data()[1], 0b01011100);
+
+    // write 16 bits
+    bw.write_bits(&[0b11001010, 0b00110101], 16).unwrap();
+    assert_eq!(bw.get_data()[2], 0b11001010);
+    assert_eq!(bw.get_data()[3], 0b00110101);
+
+    // test writing more bits than available space
+    assert!(bw.write_bits(&[u8::MAX; 5], 33).is_err());
+}
