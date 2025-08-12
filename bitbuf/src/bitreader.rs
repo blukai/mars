@@ -81,7 +81,7 @@ impl<'a> BitReader<'a> {
 
         let block1_idx = self.cur_bit >> 6;
 
-        let mut block1 = *self.data.get_unchecked(block1_idx);
+        let mut block1 = unsafe { *self.data.get_unchecked(block1_idx) };
         // get the bits we're interested in
         block1 >>= self.cur_bit & 63;
 
@@ -94,7 +94,7 @@ impl<'a> BitReader<'a> {
         } else {
             let extra_bits = self.cur_bit & 63;
 
-            let mut block2 = *self.data.get_unchecked(block1_idx + 1);
+            let mut block2 = unsafe { *self.data.get_unchecked(block1_idx + 1) };
             block2 &= EXTRA_MASKS[extra_bits];
 
             // no need to mask since we hit the end of the block. shift the second block's part
@@ -117,14 +117,15 @@ impl<'a> BitReader<'a> {
         }
 
         // SAFETY: assert and check above ensure that we'll not go out of bounds.
-        unsafe { Ok(self.read_ubit64_unchecked(num_bits)) }
+        Ok(unsafe { self.read_ubit64_unchecked(num_bits) })
     }
 
     #[inline(always)]
     pub unsafe fn read_bool_unchecked(&mut self) -> bool {
         debug_assert!(self.num_bits_left() >= 1);
 
-        let one_bit = self.data.get_unchecked(self.cur_bit >> 6) >> (self.cur_bit & 63) & 1;
+        let one_bit =
+            unsafe { self.data.get_unchecked(self.cur_bit >> 6) } >> (self.cur_bit & 63) & 1;
         self.cur_bit += 1;
         one_bit == 1
     }
@@ -136,14 +137,14 @@ impl<'a> BitReader<'a> {
         }
 
         // SAFETY: check above ensures that we'll not go out of bounds.
-        unsafe { Ok(self.read_bool_unchecked()) }
+        Ok(unsafe { self.read_bool_unchecked() })
     }
 
     #[inline(always)]
     pub unsafe fn read_byte_unchecked(&mut self) -> u8 {
         // NOTE: there's no point in asserting anything here because read_ubit64_unchecked contains
         // all the necessary debug assertions.
-        self.read_ubit64_unchecked(8) as u8
+        unsafe { self.read_ubit64_unchecked(8) as u8 }
     }
 
     #[inline]
@@ -160,29 +161,29 @@ impl<'a> BitReader<'a> {
 
         // align to u64 boundary
         while (out as usize & 7) != 0 && bits_left >= 8 {
-            *out = self.read_ubit64_unchecked(8) as u8;
-            out = out.add(1);
+            unsafe { *out = self.read_ubit64_unchecked(8) as u8 };
+            out = unsafe { out.add(1) };
             bits_left -= 8;
         }
 
         // read large "blocks"/chunks first
         while bits_left >= 64 {
             // TODO: can copy if aligned
-            *(out as *mut u64) = self.read_ubit64_unchecked(64);
-            out = out.add(8);
+            unsafe { *(out as *mut u64) = self.read_ubit64_unchecked(64) };
+            out = unsafe { out.add(8) };
             bits_left -= 64;
         }
 
         // read remaining bytes
         while bits_left >= 8 {
-            *out = self.read_ubit64_unchecked(8) as u8;
-            out = out.add(1);
+            unsafe { *out = self.read_ubit64_unchecked(8) as u8 };
+            out = unsafe { out.add(1) };
             bits_left -= 8;
         }
 
         // read remaining bits
         if bits_left > 0 {
-            *out = self.read_ubit64_unchecked(bits_left) as u8;
+            unsafe { *out = self.read_ubit64_unchecked(bits_left) as u8 };
         }
     }
 
@@ -205,7 +206,7 @@ impl<'a> BitReader<'a> {
     }
 
     pub unsafe fn read_bytes_unchecked(&mut self, buf: &mut [u8]) {
-        self.read_bits_unchecked(buf, buf.len() << 3);
+        unsafe { self.read_bits_unchecked(buf, buf.len() << 3) };
     }
 
     pub fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), ReadIntoBufferError> {
@@ -239,14 +240,14 @@ impl<'a> BitReader<'a> {
     where
         T: From<u8> + std::ops::BitOrAssign + std::ops::Shl<usize, Output = T>,
     {
-        let byte = self.read_byte_unchecked();
+        let byte = unsafe { self.read_byte_unchecked() };
         if (byte & CONTINUE_BIT) == 0 {
             return T::from(byte);
         }
 
         let mut value = T::from(byte & 0x7f);
         for count in 1..=max_varint_size::<T>() {
-            let byte = self.read_byte_unchecked();
+            let byte = unsafe { self.read_byte_unchecked() };
             value |= (T::from(byte & PAYLOAD_BITS)) << (count * 7);
             if (byte & CONTINUE_BIT) == 0 {
                 return value;
@@ -281,7 +282,7 @@ impl<'a> BitReader<'a> {
 
     #[cfg(feature = "varint")]
     pub unsafe fn read_uvarint64_unchecked(&mut self) -> u64 {
-        self.read_uvarint_unchecked()
+        unsafe { self.read_uvarint_unchecked() }
     }
 
     #[cfg(feature = "varint")]
@@ -291,7 +292,7 @@ impl<'a> BitReader<'a> {
 
     #[cfg(feature = "varint")]
     pub unsafe fn read_varint64_unchecked(&mut self) -> i64 {
-        zigzag_decode64(self.read_uvarint64_unchecked())
+        zigzag_decode64(unsafe { self.read_uvarint64_unchecked() })
     }
 
     #[cfg(feature = "varint")]
@@ -301,7 +302,7 @@ impl<'a> BitReader<'a> {
 
     #[cfg(feature = "varint")]
     pub unsafe fn read_uvarint32_unchecked(&mut self) -> u32 {
-        self.read_uvarint_unchecked()
+        unsafe { self.read_uvarint_unchecked() }
     }
 
     #[cfg(feature = "varint")]
@@ -311,7 +312,7 @@ impl<'a> BitReader<'a> {
 
     #[cfg(feature = "varint")]
     pub unsafe fn read_varint32_unchecked(&mut self) -> i32 {
-        zigzag_decode32(self.read_uvarint32_unchecked())
+        zigzag_decode32(unsafe { self.read_uvarint32_unchecked() })
     }
 
     #[cfg(feature = "varint")]

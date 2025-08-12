@@ -349,6 +349,7 @@ impl<T> GenVec<T> {
         self.entries.get(index as usize)
     }
 
+    #[allow(dead_code, reason = "i want to keep this for symmetry")]
     #[inline]
     fn get_entry_by_index(&self, index: u32) -> &Entry<T> {
         self.try_get_entry_by_index(index)
@@ -376,6 +377,7 @@ impl<T> GenVec<T> {
         None
     }
 
+    #[allow(dead_code, reason = "i want to keep this for symmetry")]
     #[inline]
     fn get_entry_by_handle(&self, handle: Handle<T>) -> &Entry<T> {
         self.try_get_entry_by_handle(handle)

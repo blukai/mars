@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 
 [workspace.dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
