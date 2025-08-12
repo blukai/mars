@@ -1,8 +1,6 @@
 //! inspired by <https://github.com/gfx-rs/range-alloc>, but provides very different api.
-use std::{
-    error, fmt,
-    ops::{Add, AddAssign, Range, Sub, SubAssign},
-};
+use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
+use std::{error, fmt};
 
 /// the `RangeAllocError` error indicates an allocation failure that may be due to resource
 /// exhaustion or to something wrong when combining the given input arguments with this allocator.

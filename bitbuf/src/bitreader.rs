@@ -1,9 +1,9 @@
 #[cfg(feature = "varint")]
-use varint::{max_varint_size, zigzag_decode32, zigzag_decode64, CONTINUE_BIT, PAYLOAD_BITS};
+use varint::{CONTINUE_BIT, PAYLOAD_BITS, max_varint_size, zigzag_decode32, zigzag_decode64};
 
 #[cfg(feature = "varint")]
 use crate::ReadVarintError;
-use crate::{OverflowError, ReadIntoBufferError, EXTRA_MASKS};
+use crate::{EXTRA_MASKS, OverflowError, ReadIntoBufferError};
 
 // NOTE(blukai): introduction of "caching" didn't yeild any performance inprovements, in fact quite
 // the opposite happened. numbers were degraded.

@@ -1,7 +1,7 @@
 #[cfg(feature = "varint")]
-use varint::{zigzag_encode64, CONTINUE_BIT, PAYLOAD_BITS};
+use varint::{CONTINUE_BIT, PAYLOAD_BITS, zigzag_encode64};
 
-use crate::{OverflowError, BIT_WRITE_MASKS, EXTRA_MASKS};
+use crate::{BIT_WRITE_MASKS, EXTRA_MASKS, OverflowError};
 
 pub struct BitWriter<'a> {
     data_bits: usize,

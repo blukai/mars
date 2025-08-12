@@ -1,4 +1,5 @@
-use std::{hint::black_box, io::Cursor};
+use std::hint::black_box;
+use std::io::Cursor;
 
 use criterion::{BenchmarkId, Criterion};
 use criterion_cycles_per_byte::CyclesPerByte;

@@ -1,11 +1,9 @@
 //! this is like <https://github.com/paritytech/nohash-hasher>, but i have my opinions.
-use std::{
-    any::type_name,
-    collections::{HashMap, HashSet},
-    fmt,
-    hash::{BuildHasherDefault, Hash, Hasher},
-    marker::PhantomData,
-};
+use std::any::type_name;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::hash::{BuildHasherDefault, Hash, Hasher};
+use std::marker::PhantomData;
 
 pub trait NoHash: Hash {}
 

@@ -1,10 +1,8 @@
-use std::{
-    any::TypeId,
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-    mem,
-    num::NonZeroU32,
-};
+use std::any::TypeId;
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
+use std::mem;
+use std::num::NonZeroU32;
 
 /// Tracks the generation of an entry in [`GenVec`].
 ///
