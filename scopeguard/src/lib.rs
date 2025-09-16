@@ -6,18 +6,6 @@ use std::ops::{Deref, DerefMut};
 /// https://github.com/torvalds/linux/blob/cca7a0aae8958c9b1cd14116cb8b2f22ace2205e/rust/kernel/types.rs#L220
 pub struct ScopeGuard<T, F: FnOnce(T)>(Option<(T, F)>);
 
-impl<T, F: FnOnce(T)> ScopeGuard<T, F> {
-    #[must_use]
-    pub fn new_with_data(data: T, cleanup: F) -> Self {
-        Self(Some((data, cleanup)))
-    }
-
-    /// prevents the cleanup function from running and returns the guarded data.
-    pub fn dismiss(mut self) -> T {
-        self.0.take().unwrap().0
-    }
-}
-
 impl ScopeGuard<(), fn(())> {
     /// the return must be bound to a named variable (e.g., `let _guard = ...`).
     ///
@@ -27,6 +15,18 @@ impl ScopeGuard<(), fn(())> {
     #[must_use]
     pub fn new(cleanup: impl FnOnce()) -> ScopeGuard<(), impl FnOnce(())> {
         ScopeGuard::new_with_data((), |_| cleanup())
+    }
+}
+
+impl<T, F: FnOnce(T)> ScopeGuard<T, F> {
+    #[must_use]
+    pub fn new_with_data(data: T, cleanup: F) -> Self {
+        Self(Some((data, cleanup)))
+    }
+
+    /// prevents the cleanup function from running and returns the guarded data.
+    pub fn dismiss(mut self) -> T {
+        self.0.take().unwrap().0
     }
 }
 

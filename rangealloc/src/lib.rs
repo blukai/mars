@@ -1,4 +1,5 @@
 //! inspired by <https://github.com/gfx-rs/range-alloc>, but provides very different api.
+
 use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 use std::{error, fmt};
 
@@ -17,7 +18,7 @@ impl fmt::Display for RangeAllocError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RangeAlloc<T> {
     full_range: Range<T>,
     free_ranges: Vec<Range<T>>,
