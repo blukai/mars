@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "bitbuf",
-  "charsor",
   "fxhash",
   "genvec",
   "nohash",
@@ -19,7 +18,6 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion-cycles-per-byte = "0.6.1"
 # workspace
 bitbuf = { path = "bitbuf" }
-charsor = { path = "charsor" }
 fxhash = { path = "fxhash" }
 genvec = { path = "genvec" }
 nohash = { path = "nohash" }
