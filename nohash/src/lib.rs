@@ -1,4 +1,5 @@
 //! this is like <https://github.com/paritytech/nohash-hasher>, but i have my opinions.
+
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -18,82 +19,97 @@ impl NoHash for i32 {}
 impl NoHash for i64 {}
 impl NoHash for isize {}
 
-pub struct NoHashHasher<T>(u64, PhantomData<T>);
+pub struct NoHasher<T>(u64, PhantomData<T>);
 
-impl<T: NoHash> Hasher for NoHashHasher<T> {
+impl<T: NoHash> Hasher for NoHasher<T> {
+    #[cold]
+    #[inline(never)]
     fn write(&mut self, _bytes: &[u8]) {
-        unreachable!();
+        panic!("invalid use of nohash");
     }
 
+    #[inline]
     fn write_u8(&mut self, n: u8) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_u16(&mut self, n: u16) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_u32(&mut self, n: u32) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_u64(&mut self, n: u64) {
         self.0 = n;
     }
 
+    #[inline]
     fn write_usize(&mut self, n: usize) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_i8(&mut self, n: i8) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_i16(&mut self, n: i16) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_i32(&mut self, n: i32) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_i64(&mut self, n: i64) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn write_isize(&mut self, n: isize) {
         self.0 = n as u64;
     }
 
+    #[inline]
     fn finish(&self) -> u64 {
         self.0
     }
 }
 
-impl<T> fmt::Debug for NoHashHasher<T> {
+impl<T> fmt::Debug for NoHasher<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple(type_name::<Self>()).field(&self.0).finish()
     }
 }
 
 // @BlindDerive
-impl<T> Default for NoHashHasher<T> {
+impl<T> Default for NoHasher<T> {
+    #[inline]
     fn default() -> Self {
         Self(0, PhantomData)
     }
 }
 
 // @BlindDerive
-impl<T> Clone for NoHashHasher<T> {
+impl<T> Clone for NoHasher<T> {
+    #[inline]
     fn clone(&self) -> Self {
         Self(self.0, PhantomData)
     }
 }
 
 // @BlindDerive
-impl<T> Copy for NoHashHasher<T> {}
+impl<T> Copy for NoHasher<T> {}
 
-pub type BuildNoHashHasher<T> = BuildHasherDefault<NoHashHasher<T>>;
+pub type NoBuildHasher<T> = BuildHasherDefault<NoHasher<T>>;
 
-pub type NoHashMap<K, V> = HashMap<K, V, BuildNoHashHasher<K>>;
-pub type NoHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
+pub type NoHashMap<K, V> = HashMap<K, V, NoBuildHasher<K>>;
+pub type NoHashSet<T> = HashSet<T, NoBuildHasher<T>>;
