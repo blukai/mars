@@ -1,7 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+  "arg",
   "bitbuf",
+  "flag",
   "fxhash",
   "genvec",
   "nohash",
@@ -17,11 +19,12 @@ edition = "2024"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion-cycles-per-byte = "0.6.1"
 # workspace
+arg = { path = "arg" }
 bitbuf = { path = "bitbuf" }
+flag = { path = "flag" }
 fxhash = { path = "fxhash" }
 genvec = { path = "genvec" }
 nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
 varint = { path = "varint" }
-
