@@ -11,6 +11,7 @@ use std::{
     io::{self, Write as _},
     mem,
     ops::{ControlFlow, Range},
+    path::PathBuf,
     process, str,
 };
 
@@ -122,6 +123,58 @@ where
     }
 }
 
+// NOTE: i give up on trying to do auto impls purely with trait system.
+//   maybe try again when trait specialization is out.
+
+// NOTE: impl_value_from_borrowed is for types that result in parsing types discard the source &str/String.
+macro_rules! impl_value_for_from_borrowed {
+    ($t:ty) => {
+        impl<'s> Value<'s> for $t {
+            fn parse(s: Cow<'s, str>) -> Result<Self, ValueError> {
+                std::str::FromStr::from_str(s.as_ref()).map_err(ValueError::from)
+            }
+
+            fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+                Self::parse(s).map(|v| *self = v)
+            }
+        }
+    };
+}
+
+impl_value_for_from_borrowed!(f32);
+impl_value_for_from_borrowed!(f64);
+impl_value_for_from_borrowed!(i128);
+impl_value_for_from_borrowed!(i16);
+impl_value_for_from_borrowed!(i32);
+impl_value_for_from_borrowed!(i64);
+impl_value_for_from_borrowed!(i8);
+impl_value_for_from_borrowed!(isize);
+impl_value_for_from_borrowed!(u128);
+impl_value_for_from_borrowed!(u16);
+impl_value_for_from_borrowed!(u32);
+impl_value_for_from_borrowed!(u64);
+impl_value_for_from_borrowed!(u8);
+impl_value_for_from_borrowed!(usize);
+
+// NOTE: impl_value_for_from_owned is for types that want to own String.
+macro_rules! impl_value_for_from_owned {
+    ($t:ty) => {
+        impl<'s> Value<'s> for $t {
+            fn parse(s: Cow<'s, str>) -> Result<Self, ValueError> {
+                Ok(<$t>::from(s.into_owned()))
+            }
+
+            fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+                Self::parse(s).map(|v| *self = v)
+            }
+        }
+    };
+}
+
+impl_value_for_from_owned!(OsString);
+impl_value_for_from_owned!(PathBuf);
+impl_value_for_from_owned!(String);
+
 #[test]
 fn test_is_bool() {
     assert!(true.is_bool());
@@ -134,35 +187,10 @@ fn test_is_bool() {
     assert!(!u8::type_is_bool());
 }
 
-trait ValueFromStr<'s>: Value<'s> + str::FromStr<Err: Into<ValueError>> {}
-
-impl ValueFromStr<'_> for String {}
-impl ValueFromStr<'_> for f32 {}
-impl ValueFromStr<'_> for f64 {}
-impl ValueFromStr<'_> for i128 {}
-impl ValueFromStr<'_> for i16 {}
-impl ValueFromStr<'_> for i32 {}
-impl ValueFromStr<'_> for i64 {}
-impl ValueFromStr<'_> for i8 {}
-impl ValueFromStr<'_> for isize {}
-impl ValueFromStr<'_> for u128 {}
-impl ValueFromStr<'_> for u16 {}
-impl ValueFromStr<'_> for u32 {}
-impl ValueFromStr<'_> for u64 {}
-impl ValueFromStr<'_> for u8 {}
-impl ValueFromStr<'_> for usize {}
-
-impl<'s, T: ValueFromStr<'s>> Value<'s> for T {
-    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
-    where
-        Self: Sized,
-    {
-        T::from_str(&s).map_err(|e| e.into())
-    }
-
-    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
-        Self::parse(s).map(|v| *self = v)
-    }
+#[test]
+fn test_is_none() {
+    assert!((&None::<bool> as &dyn Value).is_none());
+    assert!(!(&Some(true) as &dyn Value).is_none());
 }
 
 #[derive(Debug)]

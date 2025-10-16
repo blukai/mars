@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ffi::OsString, path::PathBuf};
 
 #[derive(Debug)]
 enum Custom {
@@ -27,17 +27,21 @@ fn main() {
     const DEFAULT_COW_STR: &'static str = "MOO!";
 
     let mut cow_str_flag = Cow::<'_, str>::from(DEFAULT_COW_STR);
-    let mut optional_string_flag = None::<String>;
+    let mut os_string_flag = None::<OsString>;
+    let mut path_buf_flag = None::<PathBuf>;
+    let mut string_flag = None::<String>;
     let mut bool_flag = false;
-    let mut optional_f64_flag = None::<f64>;
+    let mut f64_flag = None::<f64>;
     let mut i8_flag = -42_i8;
     let mut custom_flag = None::<Custom>;
 
     let flag_set = flag::FlagSet::default()
-        .add("optional-string", &mut optional_string_flag, "string flag")
-        .add("cow-str", &mut cow_str_flag, "cow-str flag")
+        .add("cow-str", &mut cow_str_flag, "Cow<'_, str> flag")
+        .add("os-string", &mut os_string_flag, "OsString flag")
+        .add("path-buf", &mut path_buf_flag, "PathBuf flag")
+        .add("string", &mut string_flag, "String flag")
         .add("bool", &mut bool_flag, "bool flag")
-        .add("optional-f64", &mut optional_f64_flag, "f64 flag")
+        .add("f64", &mut f64_flag, "f64 flag")
         .add("i8", &mut i8_flag, "i8 flag")
         .add("custom", &mut custom_flag, "custom flag");
 
@@ -57,9 +61,11 @@ fn main() {
 
     #[rustfmt::skip]
     println!("cow-str={cow_str_flag} (is_borrowed: {})", matches!(cow_str_flag, Cow::Borrowed(_)));
-    println!("optional-string={optional_string_flag:?}");
+    println!("os-string={os_string_flag:?}");
+    println!("string={string_flag:?}");
+    println!("path-buf={path_buf_flag:?}");
     println!("bool={bool_flag}");
-    println!("optional-f64={optional_f64_flag:?}");
+    println!("f64={f64_flag:?}");
     println!("i8={i8_flag}");
     println!("custom={custom_flag:?}");
 }
