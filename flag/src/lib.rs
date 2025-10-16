@@ -178,10 +178,22 @@ pub enum ParseError {
 
 impl error::Error for ParseError {}
 
+// NOTE: anyhow is whining about ParseError not being Send+Sync.
+unsafe impl Send for ParseError {}
+unsafe impl Sync for ParseError {}
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            _ => todo!("ArgError::fmt"),
+            Self::InvalidArg(arg) => write!(f, "invalid arg: {arg:?}"),
+            Self::InvalidSyntax { arg } => write!(f, "invalid syntax: {arg}"),
+            Self::UnknownFlag { name } => write!(f, "flag provided but not defined: -{name}"),
+            Self::MissingValue { flag_name } => write!(f, "flag needs an argument: -{flag_name}"),
+            Self::CouldNotAssignValue { flag_name, err } => {
+                write!(f, "could not assign value to -{flag_name}: {err}")
+            }
+            Self::HelpNotFirst => write!(f, "invalid position of help flag, must be first"),
+            Self::CouldNotPrintHelp(err) => write!(f, "could not print help: {err}"),
         }
     }
 }

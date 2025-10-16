@@ -7,3 +7,8 @@ see:
 - https://smallcultfollowing.com/babysteps/blog/2022/04/12/implied-bounds-and-perfect-derive/.
 - https://rgbcu.be/blog/derive-broken
 
+TODO:
+  - simple file watcher. i don't like notify crate. i don't like its dependency
+    on walkdir. i'm not sure i like that it handles crate creation internally
+    without giving any control over it.
+    maybe see https://github.com/focus-editor/focus/blob/fefbb480e593c3aef442d4f4851ef1175a349626/modules/File_Watcher/module.jai
