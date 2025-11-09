@@ -9,6 +9,8 @@ members = [
   "nohash",
   "rangealloc",
   "scopeguard",
+  "str",
+  "tempalloc",
   "varint",
 ]
 
@@ -17,7 +19,8 @@ edition = "2024"
 
 [workspace.dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
-criterion-cycles-per-byte = "0.6.1"
+criterion-cycles-per-byte = { version = "0.6.1" }
+allocator-api2 = { version = "0.3.1" }
 # workspace
 arg = { path = "arg" }
 bitbuf = { path = "bitbuf" }
@@ -27,4 +30,6 @@ genvec = { path = "genvec" }
 nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
+str = { path = "str" }
+tempalloc = { path = "tempalloc" }
 varint = { path = "varint" }

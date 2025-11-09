@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c583acf993cf4245c4acb0a2cc2ab1f9cc097de73411bb6d3647ff6af2b1013d"
+
+[[package]]
 name = "anes"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -455,6 +461,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "str"
+version = "0.0.0"
+dependencies = [
+ "allocator-api2",
+ "tempalloc",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -463,6 +477,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tempalloc"
+version = "0.0.0"
+dependencies = [
+ "allocator-api2",
 ]
 
 [[package]]
