@@ -94,11 +94,6 @@ impl<const SIZE: usize, const MIN_ALIGN: usize> TempAlloc<SIZE, MIN_ALIGN> {
     }
 
     #[inline]
-    pub const fn get_high_water_mark(&self) -> usize {
-        self.high_water_mark.get()
-    }
-
-    #[inline]
     pub const fn get_mark(&self) -> usize {
         self.occupied.get()
     }
@@ -110,13 +105,13 @@ impl<const SIZE: usize, const MIN_ALIGN: usize> TempAlloc<SIZE, MIN_ALIGN> {
     }
 
     #[inline]
-    pub const fn as_ptr(&self) -> *const u8 {
-        self.data.get().cast()
+    pub const fn get_high_water_mark(&self) -> usize {
+        self.high_water_mark.get()
     }
 
     #[inline]
-    pub const fn size() -> usize {
-        SIZE
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.data.get().cast()
     }
 
     #[inline]
@@ -139,20 +134,22 @@ unsafe impl<const SIZE: usize, const MIN_ALIGN: usize> Allocator for TempAlloc<S
 }
 
 #[test]
-fn test_temporary_storage() {
+fn test_temp_alloc() {
     let temp = TempAlloc::<1024>::new();
 
     // normal type
     {
         temp.allocate(Layout::new::<u64>());
-        assert_eq!(temp.get_high_water_mark(), size_of::<u64>());
+        assert_eq!(temp.get_mark(), size_of::<u64>());
+        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
         temp.reset();
     }
 
     // zero-sized type
     {
         temp.allocate(Layout::new::<()>());
-        assert_eq!(temp.get_high_water_mark(), size_of::<()>());
+        assert_eq!(temp.get_mark(), size_of::<()>());
+        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
         temp.reset();
     }
 }
