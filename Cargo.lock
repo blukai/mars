@@ -12,6 +12,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc"
+version = "0.0.0"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
 name = "anes"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

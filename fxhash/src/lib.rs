@@ -74,7 +74,10 @@ pub const fn hash_bytes(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0;
     let mut i: usize = 0;
 
-    // hash as u64s first
+    // TODO: it would be very good to ensure that everything is aligned
+    //   but that would ruin the hash.
+    //
+    // hash as u64s first (unaligned)
     let p = bytes.as_ptr();
     while i < bytes.len() - (bytes.len() % size_of::<u64>()) {
         let value = unsafe { std::ptr::read_unaligned(p.add(i) as *const u64) };
