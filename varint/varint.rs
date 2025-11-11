@@ -1,5 +1,8 @@
 use std::{error, fmt, io};
 
+#[cfg(test)]
+mod varint_tests;
+
 pub const CONTINUE_BIT: u8 = 0x80;
 pub const PAYLOAD_BITS: u8 = 0x7f;
 

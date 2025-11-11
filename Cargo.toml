@@ -11,6 +11,7 @@ members = [
   "rangealloc",
   "scopeguard",
   "str",
+  "tempalloc",
   "varint",
   "vec",
 ]
@@ -33,5 +34,48 @@ nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
 str = { path = "str" }
+tempalloc = { path = "tempalloc" }
 varint = { path = "varint" }
 vec = { path = "vec" }
+
+# workspace above
+# ----
+# root package below
+
+[package]
+name = "mars"
+version = "0.0.0"
+edition.workspace = true
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+alloc = { workspace = true, optional = true }
+arg = { workspace = true, optional = true }
+bitbuf = { workspace = true, optional = true }
+flag = { workspace = true, optional = true }
+fxhash = { workspace = true, optional = true }
+genvec = { workspace = true, optional = true }
+nohash = { workspace = true, optional = true }
+rangealloc = { workspace = true, optional = true }
+scopeguard = { workspace = true, optional = true }
+str = { workspace = true, optional = true }
+tempalloc = { workspace = true, optional = true }
+varint = { workspace = true, optional = true }
+vec = { workspace = true, optional = true }
+
+[features]
+alloc = ["dep:alloc"]
+arg = ["dep:arg"]
+bitbuf = ["dep:bitbuf"]
+flag = ["dep:flag"]
+fxhash = ["dep:fxhash"]
+genvec = ["dep:genvec"]
+nohash = ["dep:nohash"]
+rangealloc = ["dep:rangealloc"]
+scopeguard = ["dep:scopeguard"]
+str = ["dep:str"]
+tempalloc = ["dep:tempalloc"]
+varint = ["dep:varint", "bitbuf?/varint"]
+vec = ["dep:vec"]

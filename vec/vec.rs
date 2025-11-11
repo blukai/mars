@@ -1,16 +1,16 @@
 use core::error::Error;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
+use core::slice::SliceIndex;
 use core::slice::{self};
 use core::{fmt, iter, ops};
 use std::io;
-use std::slice::SliceIndex;
 
 use alloc::{Allocator, Global, Layout};
 use scopeguard::ScopeGuard;
 
 #[cfg(test)]
-mod stdtests;
+mod vec_stdtests;
 
 // NOTE: this is copypasted from std.
 //
@@ -879,13 +879,13 @@ impl<T, A: Allocator> Drop for Drain<'_, T, A> {
 
 #[test]
 fn test_uses_provided_allocator() {
-    let mut talloc_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
-    let talloc = alloc::TempAllocator::new(&mut talloc_data);
+    let mut temp_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
+    let temp = tempalloc::TempAlloc::new(&mut temp_data);
 
-    let mut this: Vec<u32, _> = Vec::new_in(&talloc);
+    let mut this: Vec<u32, _> = Vec::new_in(&temp);
 
     this.try_reserve(42).unwrap();
-    assert_eq!(talloc.get_mark(), 42 * size_of::<u32>());
+    assert_eq!(temp.get_mark(), 42 * size_of::<u32>());
 }
 
 #[test]

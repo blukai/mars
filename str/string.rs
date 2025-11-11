@@ -553,10 +553,10 @@ macro_rules! format {
 
 #[test]
 fn test_format_macro() {
-    let mut talloc_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
-    let talloc = alloc::TempAllocator::new(&mut talloc_data);
+    let mut temp_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
+    let temp = tempalloc::TempAlloc::new(&mut temp_data);
 
     let expected = std::format!("hello, {who}! {:.4}", 42.69, who = "sailor");
-    let actual = format!(try in &talloc, "hello, {who}! {:.4}", 42.69, who = "sailor").unwrap();
+    let actual = format!(try in &temp, "hello, {who}! {:.4}", 42.69, who = "sailor").unwrap();
     assert_eq!(expected, actual);
 }

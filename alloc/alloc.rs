@@ -3,10 +3,6 @@
 //   that support allocator-api2.
 pub use allocator_api2::alloc::*;
 
-pub use tempallocator::TempAllocator;
-
-mod tempallocator;
-
 #[inline]
 pub const fn size_align_up(size: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());

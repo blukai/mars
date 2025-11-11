@@ -3,9 +3,15 @@ name = "vec"
 version = "0.0.0"
 edition.workspace = true
 
+[lib]
+path = "vec.rs"
+
 [dependencies]
 alloc = { workspace = true }
 scopeguard = { workspace = true }
+
+[dev-dependencies]
+tempalloc = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_global_oom_handling)'] }

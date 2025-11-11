@@ -3,9 +3,8 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull, null_mut};
 
+use alloc::{AllocError, Allocator, Layout, size_align_up};
 use scopeguard::ScopeGuard;
-
-use crate::{AllocError, Allocator, Layout, size_align_up};
 
 // TODO: remove once `core::cmp::max` is usable in const.
 const fn max(a: usize, b: usize) -> usize {
@@ -54,7 +53,7 @@ const fn max(a: usize, b: usize) -> usize {
 //     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
 #[repr(C, align(64))]
-pub struct TempAllocator<'a> {
+pub struct TempAlloc<'a> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;
     //   - at least for now i want to be strict and ensure that temp alloc stuff can't be normally
@@ -69,7 +68,7 @@ pub struct TempAllocator<'a> {
     high_water_mark: Cell<usize>,
 }
 
-impl<'a> TempAllocator<'a> {
+impl<'a> TempAlloc<'a> {
     pub const fn new(data: &'a mut [MaybeUninit<u8>]) -> Self {
         Self {
             ptr: data.as_mut_ptr(),
@@ -130,7 +129,7 @@ impl<'a> TempAllocator<'a> {
     }
 }
 
-unsafe impl<'a> Allocator for TempAllocator<'a> {
+unsafe impl<'a> Allocator for TempAlloc<'a> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         NonNull::new(ptr::slice_from_raw_parts_mut(
             self.allocate(layout),
@@ -144,22 +143,22 @@ unsafe impl<'a> Allocator for TempAllocator<'a> {
 
 #[test]
 fn test_temp_alloc() {
-    let mut talloc_data = [MaybeUninit::<u8>::uninit(); 1000];
-    let talloc = TempAllocator::new(&mut talloc_data);
+    let mut temp_data = [MaybeUninit::<u8>::uninit(); 1000];
+    let temp = TempAlloc::new(&mut temp_data);
 
     // normal type
     {
-        talloc.allocate(Layout::new::<u64>());
-        assert_eq!(talloc.get_mark(), size_of::<u64>());
-        assert_eq!(talloc.get_high_water_mark(), talloc.get_mark());
-        talloc.clear();
+        temp.allocate(Layout::new::<u64>());
+        assert_eq!(temp.get_mark(), size_of::<u64>());
+        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
+        temp.clear();
     }
 
     // zero-sized type
     {
-        talloc.allocate(Layout::new::<()>());
-        assert_eq!(talloc.get_mark(), size_of::<()>());
-        assert_eq!(talloc.get_high_water_mark(), talloc.get_mark());
-        talloc.clear();
+        temp.allocate(Layout::new::<()>());
+        assert_eq!(temp.get_mark(), size_of::<()>());
+        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
+        temp.clear();
     }
 }

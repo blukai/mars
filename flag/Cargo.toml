@@ -3,5 +3,8 @@ name = "flag"
 version = "0.0.0"
 edition.workspace = true
 
+[lib]
+path = "flag.rs"
+
 [dev-dependencies]
-arg.workspace = true
+arg = { workspace = true }
