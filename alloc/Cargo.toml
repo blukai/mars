@@ -1,5 +1,5 @@
 [package]
-name = "tempalloc"
+name = "alloc"
 version = "0.0.0"
 edition.workspace = true
 

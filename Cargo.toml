@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "alloc",
   "arg",
   "bitbuf",
   "flag",
@@ -10,8 +11,8 @@ members = [
   "rangealloc",
   "scopeguard",
   "str",
-  "tempalloc",
   "varint",
+  "vec",
 ]
 
 [workspace.package]
@@ -22,6 +23,7 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion-cycles-per-byte = { version = "0.6.1" }
 allocator-api2 = { version = "0.3.1" }
 # workspace
+alloc = { path = "alloc" }
 arg = { path = "arg" }
 bitbuf = { path = "bitbuf" }
 flag = { path = "flag" }
@@ -31,5 +33,5 @@ nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
 str = { path = "str" }
-tempalloc = { path = "tempalloc" }
 varint = { path = "varint" }
+vec = { path = "vec" }

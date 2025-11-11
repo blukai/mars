@@ -1,7 +1,7 @@
-mod bytestr;
-mod formatter;
+mod bytestring;
 mod string;
+#[cfg(test)]
+mod string_stdtests;
 
-pub use bytestr::*;
-pub use formatter::*;
+pub use bytestring::*;
 pub use string::*;

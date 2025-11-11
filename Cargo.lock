@@ -12,6 +12,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc"
+version = "0.0.0"
+dependencies = [
+ "allocator-api2",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -464,8 +471,8 @@ dependencies = [
 name = "str"
 version = "0.0.0"
 dependencies = [
- "allocator-api2",
- "tempalloc",
+ "alloc",
+ "vec",
 ]
 
 [[package]]
@@ -477,13 +484,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "tempalloc"
-version = "0.0.0"
-dependencies = [
- "allocator-api2",
 ]
 
 [[package]]
@@ -508,6 +508,14 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "criterion-cycles-per-byte",
+]
+
+[[package]]
+name = "vec"
+version = "0.0.0"
+dependencies = [
+ "alloc",
+ "scopeguard",
 ]
 
 [[package]]

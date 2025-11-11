@@ -1,21 +1,16 @@
-//! NOTE: this is a partial copy of unstable std bstr.
-
+// NOTE: this is a partial copy of unstable std bstr.
+//
 // $ find ./library -name "bstr*"
 // ./library/alloc/src/bstr.rs
 // ./library/core/src/bstr
 // ./library/coretests/tests/bstr.rs
 // ./library/std/src/bstr.rs
 
+use alloc::{Allocator, Global};
 use core::fmt::{self, Write as _};
-use core::hash;
-use core::ops;
+use core::{hash, ops};
 
-use allocator_api2::{
-    alloc::{Allocator, Global},
-    vec::Vec,
-};
-
-use crate::{FormatError, Formatter, OverflowingFormatter};
+use vec::Vec;
 
 // ----
 // impl macros
@@ -65,7 +60,7 @@ macro_rules! impl_index {
 /// A wrapper for `&[u8]` representing a human-readable string that's conventionally, but not
 /// always, UTF-8.
 ///
-/// For an owned, growable byte string buffer, use [`crate::ByteString`].
+/// For an owned, growable byte string buffer, use [`ByteString`].
 ///
 /// # Representation
 ///
@@ -96,6 +91,12 @@ impl ByteStr {
     #[inline]
     pub const fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+}
+impl<'a> Default for &'a ByteStr {
+    #[inline]
+    fn default() -> Self {
+        ByteStr::from_bytes(b"")
     }
 }
 
@@ -190,12 +191,6 @@ impl fmt::Display for ByteStr {
         }
 
         Ok(())
-    }
-}
-
-impl<'a> Default for &'a ByteStr {
-    fn default() -> Self {
-        ByteStr::from_bytes(b"")
     }
 }
 
@@ -296,7 +291,7 @@ fn test_display() {
 /// A wrapper for `Vec<u8>` representing a human-readable string that's conventionally, but not
 /// always, UTF-8.
 ///
-/// For a borrowed byte string see [`crate::ByteStr`].
+/// For a borrowed byte string see [`ByteStr`].
 ///
 /// `ByteString` implements `Deref` to `&Vec<u8>`, so all methods available on `&Vec<u8>` are
 /// available on `ByteString`. Similarly, `ByteString` implements `DerefMut` to `&mut Vec<u8>`,
@@ -305,8 +300,13 @@ fn test_display() {
 /// The `Debug` and `Display` implementations for `ByteString` are the same as those for `ByteStr`,
 /// showing invalid UTF-8 as hex escapes or the Unicode replacement character, respectively.
 #[repr(transparent)]
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ByteString<A: Allocator = Global>(pub Vec<u8, A>);
+
+impl Default for ByteString {
+    fn default() -> Self {
+        ByteString(Vec::new())
+    }
+}
 
 impl<A: Allocator> ops::Deref for ByteString<A> {
     type Target = Vec<u8, A>;
@@ -352,12 +352,7 @@ impl<A: Allocator> fmt::Display for ByteString<A> {
     }
 }
 
-impl Default for ByteString {
-    fn default() -> Self {
-        ByteString(Vec::new())
-    }
-}
-
+impl_partial_eq!([A1: Allocator, A2: Allocator], ByteString<A1>, ByteString<A2>);
 impl_partial_eq!([A: Allocator], ByteString<A>, &[u8]);
 impl_partial_eq!([A: Allocator], ByteString<A>, &str);
 impl_partial_eq!([A: Allocator], ByteString<A>, &ByteStr);
@@ -396,68 +391,4 @@ impl<A: Allocator> hash::Hash for ByteString<A> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
-}
-
-// ByteString formatting
-// ----
-
-impl<A: Allocator> ByteString<A> {
-    /// format in two passes.
-    ///
-    ///   this is because fmt::Arguments has no facilities for determining size needed to fit
-    ///   everything.
-    ///
-    ///   first pass will write into "void" formatter to compute size; second pass will reserve exact
-    ///   amount of memory and perform the actual write.
-    pub fn try_format_in(args: fmt::Arguments<'_>, alloc: A) -> Result<ByteString<A>, FormatError> {
-        // NOTE: first we'll compute size of the buffer.
-        let mut f = OverflowingFormatter::empty();
-        f.write_fmt(args).map_err(FormatError::Fmt)?;
-        let size = f.written();
-
-        let mut buf = Vec::new_in(alloc);
-        buf.try_reserve_exact(size)
-            .map_err(FormatError::TryReserve)?;
-        // SAFETY: we already know the exact size.
-        unsafe { buf.set_len(size) };
-        let mut f = Formatter::new(&mut buf);
-        f.write_fmt(args).map_err(FormatError::Fmt)?;
-
-        Ok(ByteString(buf))
-    }
-
-    #[inline]
-    pub fn format_in(args: fmt::Arguments<'_>, alloc: A) -> ByteString<A> {
-        // TODO: maybe nicer, more precise, error handling.
-        Self::try_format_in(args, alloc).expect("could not format")
-    }
-}
-
-impl ByteString {
-    pub fn try_format(args: fmt::Arguments<'_>) -> Result<ByteString, FormatError> {
-        Self::try_format_in(args, Global)
-    }
-
-    pub fn format(args: fmt::Arguments<'_>) -> ByteString {
-        Self::format_in(args, Global)
-    }
-}
-
-#[test]
-fn test_try_format_in() {
-    use tempalloc::TempAlloc;
-
-    let temp = TempAlloc::<1000, 1>::new();
-
-    let expected = ByteStr::from_bytes(b"hello, sailor! 42.6900");
-
-    let formatted = ByteString::try_format_in(
-        format_args!("hello, {who}! {:.4}", 42.69, who = "sailor"),
-        &temp,
-    )
-    .expect("could not format");
-    let allocated = unsafe { core::slice::from_raw_parts(temp.as_ptr(), temp.get_mark()) };
-
-    assert_eq!(formatted, expected);
-    assert_eq!(allocated, expected.as_bytes());
 }

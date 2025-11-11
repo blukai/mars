@@ -1,10 +1,7 @@
-use core::{
-    alloc::Layout,
-    cell::{Cell, UnsafeCell},
-    ptr::{self, NonNull, null_mut},
-};
+use core::cell::{Cell, UnsafeCell};
+use core::ptr::{self, NonNull, null_mut};
 
-use allocator_api2::alloc::{AllocError, Allocator};
+use crate::{AllocError, Allocator, Layout};
 
 #[inline]
 const fn size_align_up(size: usize, align: usize) -> usize {
@@ -59,13 +56,13 @@ const fn max(a: usize, b: usize) -> usize {
 //     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
 #[repr(C)]
-pub struct TempAlloc<const SIZE: usize, const MIN_ALIGN: usize = 8> {
+pub struct TempAllocator<const SIZE: usize, const MIN_ALIGN: usize = 8> {
     data: UnsafeCell<[u8; SIZE]>,
     occupied: Cell<usize>,
     high_water_mark: Cell<usize>,
 }
 
-impl<const SIZE: usize, const MIN_ALIGN: usize> TempAlloc<SIZE, MIN_ALIGN> {
+impl<const SIZE: usize, const MIN_ALIGN: usize> TempAllocator<SIZE, MIN_ALIGN> {
     pub const fn new() -> Self {
         Self {
             data: UnsafeCell::new([0; SIZE]),
@@ -121,7 +118,9 @@ impl<const SIZE: usize, const MIN_ALIGN: usize> TempAlloc<SIZE, MIN_ALIGN> {
     }
 }
 
-unsafe impl<const SIZE: usize, const MIN_ALIGN: usize> Allocator for TempAlloc<SIZE, MIN_ALIGN> {
+unsafe impl<const SIZE: usize, const MIN_ALIGN: usize> Allocator
+    for TempAllocator<SIZE, MIN_ALIGN>
+{
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         NonNull::new(ptr::slice_from_raw_parts_mut(
             self.allocate(layout),
@@ -135,7 +134,7 @@ unsafe impl<const SIZE: usize, const MIN_ALIGN: usize> Allocator for TempAlloc<S
 
 #[test]
 fn test_temp_alloc() {
-    let temp = TempAlloc::<1024>::new();
+    let temp = TempAllocator::<1024>::new();
 
     // normal type
     {
