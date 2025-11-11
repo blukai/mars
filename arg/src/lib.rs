@@ -84,10 +84,8 @@ mod glibc {
     //   also note that in std argv is const, but there's really no way to guarantee its
     //   imutability, is there? see https://github.com/rust-lang/rust/issues/105999.
 
-    use std::{
-        ffi::{c_char, c_int},
-        ptr::null_mut,
-    };
+    use std::ffi::{c_char, c_int};
+    use std::ptr::null_mut;
 
     static mut ARGC: c_int = 0;
     static mut ARGV: *mut *mut c_char = null_mut();

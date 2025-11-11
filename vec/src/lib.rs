@@ -1,9 +1,8 @@
 use core::error::Error;
-use core::iter;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
 use core::slice::{self};
-use core::{fmt, ops};
+use core::{fmt, iter, ops};
 use std::io;
 use std::slice::SliceIndex;
 
