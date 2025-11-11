@@ -1,0 +1,11 @@
+[package]
+name = "str"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+alloc = { workspace = true }
+vec = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_global_oom_handling)'] }

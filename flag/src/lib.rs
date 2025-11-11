@@ -2,18 +2,12 @@
 //!
 //! incorporates tsoding's idea for ignoring flags: <https://github.com/tsoding/flag.h>.
 
-use std::{
-    array,
-    borrow::Cow,
-    error,
-    ffi::{OsStr, OsString},
-    fmt,
-    io::{self, Write as _},
-    mem,
-    ops::{ControlFlow, Range},
-    path::PathBuf,
-    process, str,
-};
+use std::borrow::Cow;
+use std::ffi::{OsStr, OsString};
+use std::io::{self, Write as _};
+use std::ops::{ControlFlow, Range};
+use std::path::PathBuf;
+use std::{array, error, fmt, mem, process, str};
 
 // NOTE: who would want more?
 const FLAGS_CAP: usize = 1 << 10;

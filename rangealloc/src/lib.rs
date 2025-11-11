@@ -18,6 +18,16 @@ impl fmt::Display for RangeAllocError {
     }
 }
 
+// TODO: try to avoid heap allocations in range alloc.
+//   consider doing a generous fixed-size array or something?
+//   size might be configurable via const generic param.
+//
+// TODO: simplify range alloc.
+//   the initial idea that was built around fragmentation kind of super shitty.
+//
+// TODO: range alloc doesn't have to be generic.
+//   it's kind of fun and everything, but it's stupid.
+//   rust uses usize for indexing; it makese sense to build on that instead of trying to be clever.
 #[derive(Debug, Default)]
 pub struct RangeAlloc<T> {
     full_range: Range<T>,

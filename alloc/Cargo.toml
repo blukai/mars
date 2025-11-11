@@ -1,0 +1,8 @@
+[package]
+name = "alloc"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+allocator-api2 = { workspace = true }
+scopeguard = { workspace = true }

@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 /// "user-space" implementation of something like `defer`.
 ///
 /// stolen from
-/// https://github.com/torvalds/linux/blob/cca7a0aae8958c9b1cd14116cb8b2f22ace2205e/rust/kernel/types.rs#L220
+/// <https://github.com/torvalds/linux/blob/cca7a0aae8958c9b1cd14116cb8b2f22ace2205e/rust/kernel/types.rs#L220>.
 pub struct ScopeGuard<T, F: FnOnce(T)>(Option<(T, F)>);
 
 impl ScopeGuard<(), fn(())> {
