@@ -260,7 +260,10 @@ impl<A: Allocator> String<A> {
     ///   - second pass will reserve exact amount of memory and perform the actual write.
     ///
     ///   [`fmt::Arguments`] has no facilities for determining size needed to fit everything.
-    pub fn try_from_fmt_in(args: fmt::Arguments<'_>, alloc: A) -> Result<Self, FromFmtError> {
+    pub fn try_from_format_args_in(
+        args: fmt::Arguments<'_>,
+        alloc: A,
+    ) -> Result<Self, FromFmtError> {
         // NOTE: first we'll compute size of the buffer.
         let size = {
             let mut f = RawFormatter::empty();
@@ -282,8 +285,8 @@ impl<A: Allocator> String<A> {
     }
 
     #[cfg(not(no_global_oom_handling))]
-    pub fn from_fmt_in(args: fmt::Arguments<'_>, alloc: A) -> Self {
-        match Self::try_from_fmt_in(args, alloc) {
+    pub fn from_format_args_in(args: fmt::Arguments<'_>, alloc: A) -> Self {
+        match Self::try_from_format_args_in(args, alloc) {
             Ok(this) => this,
             Err(FromFmtError::Reserve(err)) => vec::handle_reserve_error(err),
             Err(FromFmtError::Fmt(err)) => panic!("could not format: {err}"),
@@ -408,13 +411,13 @@ impl String<Global> {
         Self::with_capacity_in(capacity, Global)
     }
 
-    pub fn try_from_fmt(args: fmt::Arguments) -> Result<Self, FromFmtError> {
-        Self::try_from_fmt_in(args, Global)
+    pub fn try_from_format_args(args: fmt::Arguments) -> Result<Self, FromFmtError> {
+        Self::try_from_format_args_in(args, Global)
     }
 
     #[cfg(not(no_global_oom_handling))]
-    pub fn from_fmt(args: fmt::Arguments<'_>) -> Self {
-        Self::from_fmt_in(args, Global)
+    pub fn from_format_args(args: fmt::Arguments<'_>) -> Self {
+        Self::from_format_args_in(args, Global)
     }
 
     pub fn try_from_str(s: &str) -> Result<Self, ReserveError> {
@@ -532,16 +535,28 @@ impl<A: Allocator> fmt::Write for String<A> {
     }
 }
 
-#[test]
-fn test_try_from_fmt_in() {
-    let alloc = alloc::TempAllocator::<1024, 1>::new();
+#[macro_export]
+macro_rules! format {
+    (try in $alloc:expr, $($arg:tt)*) => {
+        $crate::String::try_from_format_args_in(format_args!($($arg)*), $alloc)
+    };
+    (try, $($arg:tt)*) => {
+        $crate::String::try_from_format_args(format_args!($($arg)*))
+    };
+    (in $alloc:expr, $($arg:tt)*) => {
+        $crate::String::from_format_args_in(format_args!($($arg)*), $alloc)
+    };
+    ($($arg:tt)*) => {
+        $crate::String::from_format_args(format_args!($($arg)*))
+    };
+}
 
-    let expected = format!("hello, {who}! {:.4}", 42.69, who = "sailor");
-    let actual = String::try_from_fmt_in(
-        format_args!("hello, {who}! {:.4}", 42.69, who = "sailor"),
-        &alloc,
-    )
-    .unwrap();
+#[test]
+fn test_format_macro() {
+    let mut talloc_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
+    let talloc = alloc::TempAllocator::new(&mut talloc_data);
+
+    let expected = std::format!("hello, {who}! {:.4}", 42.69, who = "sailor");
+    let actual = format!(try in &talloc, "hello, {who}! {:.4}", 42.69, who = "sailor").unwrap();
     assert_eq!(expected, actual);
-    assert_eq!(alloc.get_mark(), actual.len());
 }

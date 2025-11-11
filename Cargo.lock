@@ -16,6 +16,7 @@ name = "alloc"
 version = "0.0.0"
 dependencies = [
  "allocator-api2",
+ "scopeguard",
 ]
 
 [[package]]

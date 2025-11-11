@@ -7,4 +7,8 @@ pub use tempallocator::TempAllocator;
 
 mod tempallocator;
 
-// TODO: consider moving temp alloc and range alloc into alloc crate.
+#[inline]
+pub const fn size_align_up(size: usize, align: usize) -> usize {
+    debug_assert!(align.is_power_of_two());
+    (size + align - 1) & !(align - 1)
+}

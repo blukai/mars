@@ -1,13 +1,11 @@
-use core::cell::{Cell, UnsafeCell};
+use core::cell::Cell;
+use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull, null_mut};
 
-use crate::{AllocError, Allocator, Layout};
+use scopeguard::ScopeGuard;
 
-#[inline]
-const fn size_align_up(size: usize, align: usize) -> usize {
-    debug_assert!(align.is_power_of_two());
-    (size + align - 1) & !(align - 1)
-}
+use crate::{AllocError, Allocator, Layout, size_align_up};
 
 // TODO: remove once `core::cmp::max` is usable in const.
 const fn max(a: usize, b: usize) -> usize {
@@ -55,32 +53,46 @@ const fn max(a: usize, b: usize) -> usize {
 //     - https://github.com/dtolnay/linkme
 //     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
-#[repr(C)]
-pub struct TempAllocator<const SIZE: usize, const MIN_ALIGN: usize = 8> {
-    data: UnsafeCell<[u8; SIZE]>,
+#[repr(C, align(64))]
+pub struct TempAllocator<'a> {
+    // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
+    //   - it's easier to operate on;
+    //   - at least for now i want to be strict and ensure that temp alloc stuff can't be normally
+    //   passed through thread boundary .. rust does not support negative traits (`impl !Send for
+    //   TempAllocator<'_> {}`), but if a struct has raw mut pointer rust will decide to make it
+    //   !Send according to https://github.com/rust-lang/rust/issues/68318
+    ptr: *mut MaybeUninit<u8>,
+    cap: usize,
+    _marker: PhantomData<&'a mut ()>,
+
     occupied: Cell<usize>,
     high_water_mark: Cell<usize>,
 }
 
-impl<const SIZE: usize, const MIN_ALIGN: usize> TempAllocator<SIZE, MIN_ALIGN> {
-    pub const fn new() -> Self {
+impl<'a> TempAllocator<'a> {
+    pub const fn new(data: &'a mut [MaybeUninit<u8>]) -> Self {
         Self {
-            data: UnsafeCell::new([0; SIZE]),
+            ptr: data.as_mut_ptr(),
+            cap: data.len(),
+            _marker: PhantomData,
+
             occupied: Cell::new(0),
             high_water_mark: Cell::new(0),
         }
     }
 
     /// may return null.
+    /// memory is non-zeroed.
     pub const fn allocate(&self, layout: Layout) -> *mut u8 {
+        pub const MIN_ALIGN: usize = 8;
         let size = size_align_up(layout.size(), max(layout.align(), MIN_ALIGN));
 
         let prev_occupied = self.occupied.get();
-        let remaining = SIZE - prev_occupied;
+        let remaining = self.cap - prev_occupied;
         if size > remaining {
             return null_mut();
         }
-        let result = unsafe { self.data.get().cast::<u8>().add(prev_occupied) };
+        let result = unsafe { self.ptr.add(prev_occupied).cast::<u8>() };
 
         let next_occupied = prev_occupied + size;
         self.occupied.replace(next_occupied);
@@ -97,7 +109,7 @@ impl<const SIZE: usize, const MIN_ALIGN: usize> TempAllocator<SIZE, MIN_ALIGN> {
 
     #[inline]
     pub const fn set_mark(&self, mark: usize) {
-        assert!(mark <= SIZE);
+        assert!(mark <= self.cap);
         self.occupied.replace(mark);
     }
 
@@ -106,21 +118,19 @@ impl<const SIZE: usize, const MIN_ALIGN: usize> TempAllocator<SIZE, MIN_ALIGN> {
         self.high_water_mark.get()
     }
 
-    #[inline]
-    pub const fn as_ptr(&self) -> *const u8 {
-        self.data.get().cast()
+    pub fn clear_scope(&self) -> ScopeGuard<(), impl FnOnce(())> {
+        let mark = self.get_mark();
+        ScopeGuard::new(move || self.set_mark(mark))
     }
 
     #[inline]
-    pub const fn reset(&self) {
+    pub const fn clear(&self) {
         self.set_mark(0);
         self.high_water_mark.replace(0);
     }
 }
 
-unsafe impl<const SIZE: usize, const MIN_ALIGN: usize> Allocator
-    for TempAllocator<SIZE, MIN_ALIGN>
-{
+unsafe impl<'a> Allocator for TempAllocator<'a> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         NonNull::new(ptr::slice_from_raw_parts_mut(
             self.allocate(layout),
@@ -134,21 +144,22 @@ unsafe impl<const SIZE: usize, const MIN_ALIGN: usize> Allocator
 
 #[test]
 fn test_temp_alloc() {
-    let temp = TempAllocator::<1024>::new();
+    let mut talloc_data = [MaybeUninit::<u8>::uninit(); 1000];
+    let talloc = TempAllocator::new(&mut talloc_data);
 
     // normal type
     {
-        temp.allocate(Layout::new::<u64>());
-        assert_eq!(temp.get_mark(), size_of::<u64>());
-        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
-        temp.reset();
+        talloc.allocate(Layout::new::<u64>());
+        assert_eq!(talloc.get_mark(), size_of::<u64>());
+        assert_eq!(talloc.get_high_water_mark(), talloc.get_mark());
+        talloc.clear();
     }
 
     // zero-sized type
     {
-        temp.allocate(Layout::new::<()>());
-        assert_eq!(temp.get_mark(), size_of::<()>());
-        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
-        temp.reset();
+        talloc.allocate(Layout::new::<()>());
+        assert_eq!(talloc.get_mark(), size_of::<()>());
+        assert_eq!(talloc.get_high_water_mark(), talloc.get_mark());
+        talloc.clear();
     }
 }

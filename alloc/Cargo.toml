@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 allocator-api2 = { workspace = true }
+scopeguard = { workspace = true }

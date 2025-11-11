@@ -880,11 +880,13 @@ impl<T, A: Allocator> Drop for Drain<'_, T, A> {
 
 #[test]
 fn test_uses_provided_allocator() {
-    let alloc = alloc::TempAllocator::<1024, 1>::new();
-    let mut this: Vec<u32, _> = Vec::new_in(&alloc);
+    let mut talloc_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
+    let talloc = alloc::TempAllocator::new(&mut talloc_data);
+
+    let mut this: Vec<u32, _> = Vec::new_in(&talloc);
 
     this.try_reserve(42).unwrap();
-    assert_eq!(alloc.get_mark(), 42 * size_of::<u32>());
+    assert_eq!(talloc.get_mark(), 42 * size_of::<u32>());
 }
 
 #[test]
