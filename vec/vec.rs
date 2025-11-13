@@ -548,7 +548,7 @@ impl<T, A: Allocator> Vec<T, A> {
                 slice::from_raw_parts_mut(self.as_mut_ptr().add(start), end - start).iter_mut();
             Drain {
                 iter,
-                vec: self,
+                vec: NonNull::from(self),
                 tail_start: end,
                 tail_len: len - end,
             }
@@ -822,7 +822,7 @@ impl<A: Allocator> io::Write for Vec<u8, A> {
 
 pub struct Drain<'vec, T: 'vec, A: Allocator + 'vec = Global> {
     iter: slice::IterMut<'vec, T>,
-    vec: &'vec mut Vec<T, A>,
+    vec: NonNull<Vec<T, A>>,
     tail_start: usize,
     tail_len: usize,
 }
@@ -859,16 +859,17 @@ impl<T, A: Allocator> Drop for Drain<'_, T, A> {
                 return;
             }
 
-            let start = self.vec.len();
-            let tail = self.tail_start;
-            if tail != start {
-                unsafe {
-                    let src = self.vec.as_ptr().add(tail);
-                    let dst = self.vec.as_mut_ptr().add(start);
+            unsafe {
+                let vec = self.vec.as_mut();
+                let start = vec.len();
+                let tail = self.tail_start;
+                if tail != start {
+                    let src = vec.as_ptr().add(tail);
+                    let dst = vec.as_mut_ptr().add(start);
                     ptr::copy(src, dst, self.tail_len);
                 }
+                vec.len = start + self.tail_len;
             }
-            self.vec.len = start + self.tail_len;
         });
 
         let iter = mem::take(&mut self.iter);
@@ -885,7 +886,7 @@ fn test_uses_provided_allocator() {
     let mut this: Vec<u32, _> = Vec::new_in(&temp);
 
     this.try_reserve(42).unwrap();
-    assert_eq!(temp.get_mark(), 42 * size_of::<u32>());
+    assert_eq!(temp.get_checkpoint().occupied, 42 * size_of::<u32>());
 }
 
 #[test]
