@@ -11,6 +11,11 @@ const fn max(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
 }
 
+#[non_exhaustive]
+pub struct TempAllocCheckpoint {
+    pub occupied: usize,
+}
+
 // NOTE: this is a copy of Jonathan Blow's Temporary_Stroage thing from
 // https://www.youtube.com/watch?v=SSVHWrYG974.
 //
@@ -53,7 +58,7 @@ const fn max(a: usize, b: usize) -> usize {
 //     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
 #[repr(C, align(64))]
-pub struct TempAlloc<'a> {
+pub struct TempAlloc<'data> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;
     //   - at least for now i want to be strict and ensure that temp alloc stuff can't be normally
@@ -62,14 +67,14 @@ pub struct TempAlloc<'a> {
     //   !Send according to https://github.com/rust-lang/rust/issues/68318
     ptr: *mut MaybeUninit<u8>,
     cap: usize,
-    _marker: PhantomData<&'a mut ()>,
+    _marker: PhantomData<&'data mut ()>,
 
     occupied: Cell<usize>,
     high_water_mark: Cell<usize>,
 }
 
-impl<'a> TempAlloc<'a> {
-    pub const fn new(data: &'a mut [MaybeUninit<u8>]) -> Self {
+impl<'data> TempAlloc<'data> {
+    pub const fn new(data: &'data mut [MaybeUninit<u8>]) -> Self {
         Self {
             ptr: data.as_mut_ptr(),
             cap: data.len(),
@@ -101,35 +106,33 @@ impl<'a> TempAlloc<'a> {
         result
     }
 
-    #[inline]
-    pub const fn get_mark(&self) -> usize {
-        self.occupied.get()
+    pub const fn get_checkpoint(&self) -> TempAllocCheckpoint {
+        TempAllocCheckpoint {
+            occupied: self.occupied.get(),
+        }
     }
 
-    #[inline]
-    pub const fn set_mark(&self, mark: usize) {
-        assert!(mark <= self.cap);
-        self.occupied.replace(mark);
+    pub const fn reset_to_checkpoint(&self, checkpoint: TempAllocCheckpoint) {
+        assert!(checkpoint.occupied <= self.cap);
+        self.occupied.replace(checkpoint.occupied);
     }
 
-    #[inline]
+    pub fn scope_guard(&self) -> ScopeGuard<(), impl FnOnce(())> {
+        let checkpoint = self.get_checkpoint();
+        ScopeGuard::new(move || self.reset_to_checkpoint(checkpoint))
+    }
+
     pub const fn get_high_water_mark(&self) -> usize {
         self.high_water_mark.get()
     }
 
-    pub fn clear_scope(&self) -> ScopeGuard<(), impl FnOnce(())> {
-        let mark = self.get_mark();
-        ScopeGuard::new(move || self.set_mark(mark))
-    }
-
-    #[inline]
-    pub const fn clear(&self) {
-        self.set_mark(0);
+    pub const fn reset(&self) {
+        self.occupied.replace(0);
         self.high_water_mark.replace(0);
     }
 }
 
-unsafe impl<'a> Allocator for TempAlloc<'a> {
+unsafe impl<'data> Allocator for TempAlloc<'data> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         NonNull::new(ptr::slice_from_raw_parts_mut(
             self.allocate(layout),
@@ -149,16 +152,14 @@ fn test_temp_alloc() {
     // normal type
     {
         temp.allocate(Layout::new::<u64>());
-        assert_eq!(temp.get_mark(), size_of::<u64>());
-        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
-        temp.clear();
+        assert_eq!(temp.get_checkpoint().occupied, size_of::<u64>());
+        temp.reset();
     }
 
     // zero-sized type
     {
         temp.allocate(Layout::new::<()>());
-        assert_eq!(temp.get_mark(), size_of::<()>());
-        assert_eq!(temp.get_high_water_mark(), temp.get_mark());
-        temp.clear();
+        assert_eq!(temp.get_checkpoint().occupied, size_of::<()>());
+        temp.reset();
     }
 }
