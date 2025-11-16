@@ -15,5 +15,4 @@ TODO:
   - improve rangealloc
   - genvec must use vec instead of std::vec::Vec
   - arena alloc
-  - move tempalloc into alloc
   - combine nohash and fxhash into a single hash crate

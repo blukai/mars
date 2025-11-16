@@ -1,8 +1,6 @@
 use core::error::Error;
-use core::fmt;
 use core::mem::{self, MaybeUninit};
-use core::ops;
-use core::slice;
+use core::{fmt, ops, slice};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapacityError;

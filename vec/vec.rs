@@ -1,8 +1,7 @@
 use core::error::Error;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
-use core::slice::SliceIndex;
-use core::slice::{self};
+use core::slice::{self, SliceIndex};
 use core::{fmt, iter, ops};
 use std::io;
 
@@ -881,7 +880,7 @@ impl<T, A: Allocator> Drop for Drain<'_, T, A> {
 #[test]
 fn test_uses_provided_allocator() {
     let mut temp_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
-    let temp = tempalloc::TempAlloc::new(&mut temp_data);
+    let temp = alloc::TempAllocator::new(&mut temp_data);
 
     let mut this: Vec<u32, _> = Vec::new_in(&temp);
 

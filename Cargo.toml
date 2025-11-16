@@ -11,7 +11,6 @@ members = [
   "rangealloc",
   "scopeguard",
   "str",
-  "tempalloc",
   "varint",
   "vec",
 ]
@@ -34,7 +33,6 @@ nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
 str = { path = "str" }
-tempalloc = { path = "tempalloc" }
 varint = { path = "varint" }
 vec = { path = "vec" }
 
@@ -61,7 +59,6 @@ nohash = { workspace = true, optional = true }
 rangealloc = { workspace = true, optional = true }
 scopeguard = { workspace = true, optional = true }
 str = { workspace = true, optional = true }
-tempalloc = { workspace = true, optional = true }
 varint = { workspace = true, optional = true }
 vec = { workspace = true, optional = true }
 
@@ -76,6 +73,5 @@ nohash = ["dep:nohash"]
 rangealloc = ["dep:rangealloc"]
 scopeguard = ["dep:scopeguard"]
 str = ["dep:str", "alloc"]
-tempalloc = ["dep:tempalloc", "alloc"]
 varint = ["dep:varint", "bitbuf?/varint"]
 vec = ["dep:vec", "alloc"]

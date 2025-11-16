@@ -3,8 +3,9 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull, null_mut};
 
-use alloc::{AllocError, Allocator, Layout, size_align_up};
 use scopeguard::ScopeGuard;
+
+use crate::{AllocError, Allocator, Layout, size_align_up};
 
 // TODO: remove once `core::cmp::max` is usable in const.
 const fn max(a: usize, b: usize) -> usize {
@@ -12,7 +13,7 @@ const fn max(a: usize, b: usize) -> usize {
 }
 
 #[non_exhaustive]
-pub struct TempAllocCheckpoint {
+pub struct TempCheckpoint {
     pub occupied: usize,
 }
 
@@ -58,7 +59,7 @@ pub struct TempAllocCheckpoint {
 //     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
 #[repr(C, align(64))]
-pub struct TempAlloc<'data> {
+pub struct TempAllocator<'data> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;
     //   - at least for now i want to be strict and ensure that temp alloc stuff can't be normally
@@ -73,7 +74,7 @@ pub struct TempAlloc<'data> {
     high_water_mark: Cell<usize>,
 }
 
-impl<'data> TempAlloc<'data> {
+impl<'data> TempAllocator<'data> {
     pub const fn new(data: &'data mut [MaybeUninit<u8>]) -> Self {
         Self {
             ptr: data.as_mut_ptr(),
@@ -106,13 +107,13 @@ impl<'data> TempAlloc<'data> {
         result
     }
 
-    pub const fn get_checkpoint(&self) -> TempAllocCheckpoint {
-        TempAllocCheckpoint {
+    pub const fn get_checkpoint(&self) -> TempCheckpoint {
+        TempCheckpoint {
             occupied: self.occupied.get(),
         }
     }
 
-    pub const fn reset_to_checkpoint(&self, checkpoint: TempAllocCheckpoint) {
+    pub const fn reset_to_checkpoint(&self, checkpoint: TempCheckpoint) {
         assert!(checkpoint.occupied <= self.cap);
         self.occupied.replace(checkpoint.occupied);
     }
@@ -132,7 +133,7 @@ impl<'data> TempAlloc<'data> {
     }
 }
 
-unsafe impl<'data> Allocator for TempAlloc<'data> {
+unsafe impl<'data> Allocator for TempAllocator<'data> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         NonNull::new(ptr::slice_from_raw_parts_mut(
             self.allocate(layout),
@@ -147,7 +148,7 @@ unsafe impl<'data> Allocator for TempAlloc<'data> {
 #[test]
 fn test_temp_alloc() {
     let mut temp_data = [MaybeUninit::<u8>::uninit(); 1000];
-    let temp = TempAlloc::new(&mut temp_data);
+    let temp = TempAllocator::new(&mut temp_data);
 
     // normal type
     {

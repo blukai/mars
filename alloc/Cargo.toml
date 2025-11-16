@@ -8,3 +8,4 @@ path = "alloc.rs"
 
 [dependencies]
 allocator-api2 = { workspace = true }
+scopeguard = { workspace = true }

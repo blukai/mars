@@ -16,6 +16,7 @@ name = "alloc"
 version = "0.0.0"
 dependencies = [
  "allocator-api2",
+ "scopeguard",
 ]
 
 [[package]]
@@ -300,7 +301,6 @@ dependencies = [
  "rangealloc",
  "scopeguard",
  "str",
- "tempalloc",
  "varint",
  "vec",
 ]
@@ -491,7 +491,6 @@ name = "str"
 version = "0.0.0"
 dependencies = [
  "alloc",
- "tempalloc",
  "vec",
 ]
 
@@ -504,14 +503,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "tempalloc"
-version = "0.0.0"
-dependencies = [
- "alloc",
- "scopeguard",
 ]
 
 [[package]]
@@ -544,7 +535,6 @@ version = "0.0.0"
 dependencies = [
  "alloc",
  "scopeguard",
- "tempalloc",
 ]
 
 [[package]]
