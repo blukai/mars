@@ -1,7 +1,7 @@
 use vec::ReserveError::*;
 use vec::Vec;
 
-use crate::String;
+use crate::string::String;
 
 // NOTE(blukai): this is a simplified version of what can be found in
 // /rust/library/core/src/macros/mod.rs

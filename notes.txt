@@ -12,7 +12,8 @@ TODO:
     on walkdir. i'm not sure i like that it handles crate creation internally
     without giving any control over it.
     maybe see https://github.com/focus-editor/focus/blob/fefbb480e593c3aef442d4f4851ef1175a349626/modules/File_Watcher/module.jai
-  - do i want to split str into string and bytestring?
   - improve rangealloc
   - genvec must use vec instead of std::vec::Vec
   - arena alloc
+  - move tempalloc into alloc
+  - combine nohash and fxhash into a single hash crate
