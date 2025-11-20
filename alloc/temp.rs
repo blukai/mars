@@ -1,6 +1,5 @@
 use core::cell::Cell;
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull, null_mut};
 
 use scopeguard::ScopeGuard;
@@ -66,8 +65,8 @@ pub struct TempAllocator<'data> {
     //   passed through thread boundary .. rust does not support negative traits (`impl !Send for
     //   TempAllocator<'_> {}`), but if a struct has raw mut pointer rust will decide to make it
     //   !Send according to https://github.com/rust-lang/rust/issues/68318
-    ptr: *mut MaybeUninit<u8>,
-    cap: usize,
+    data: *mut u8,
+    size: usize,
     _marker: PhantomData<&'data mut ()>,
 
     occupied: Cell<usize>,
@@ -75,10 +74,10 @@ pub struct TempAllocator<'data> {
 }
 
 impl<'data> TempAllocator<'data> {
-    pub const fn new(data: &'data mut [MaybeUninit<u8>]) -> Self {
+    pub const fn new(data: &'data mut [u8]) -> Self {
         Self {
-            ptr: data.as_mut_ptr(),
-            cap: data.len(),
+            data: data.as_mut_ptr(),
+            size: data.len(),
             _marker: PhantomData,
 
             occupied: Cell::new(0),
@@ -93,18 +92,17 @@ impl<'data> TempAllocator<'data> {
         let size = size_align_up(layout.size(), max(layout.align(), MIN_ALIGN));
 
         let prev_occupied = self.occupied.get();
-        let remaining = self.cap - prev_occupied;
+        let remaining = self.size - prev_occupied;
         if size > remaining {
             return null_mut();
         }
-        let result = unsafe { self.ptr.add(prev_occupied).cast::<u8>() };
 
         let next_occupied = prev_occupied + size;
         self.occupied.replace(next_occupied);
         self.high_water_mark
             .replace(max(self.high_water_mark.get(), next_occupied));
 
-        result
+        unsafe { self.data.add(prev_occupied).cast::<u8>() }
     }
 
     pub const fn get_checkpoint(&self) -> TempCheckpoint {
@@ -114,7 +112,7 @@ impl<'data> TempAllocator<'data> {
     }
 
     pub const fn reset_to_checkpoint(&self, checkpoint: TempCheckpoint) {
-        assert!(checkpoint.occupied <= self.cap);
+        assert!(checkpoint.occupied <= self.size);
         self.occupied.replace(checkpoint.occupied);
     }
 
@@ -135,20 +133,21 @@ impl<'data> TempAllocator<'data> {
 
 unsafe impl<'data> Allocator for TempAllocator<'data> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        NonNull::new(ptr::slice_from_raw_parts_mut(
-            self.allocate(layout),
-            layout.size(),
-        ))
-        .ok_or(AllocError)
+        let data = self.allocate(layout);
+        NonNull::new(ptr::slice_from_raw_parts_mut(data, layout.size())).ok_or(AllocError)
     }
 
-    unsafe fn deallocate(&self, _ptr: NonNull<u8>, _layout: Layout) {}
+    unsafe fn deallocate(&self, _ptr: NonNull<u8>, _layout: Layout) {
+        // call reset() periodically.
+    }
 }
 
 #[test]
-fn test_temp_alloc() {
-    let mut temp_data = [MaybeUninit::<u8>::uninit(); 1000];
-    let temp = TempAllocator::new(&mut temp_data);
+fn test_temp_storage() {
+    use core::mem::MaybeUninit;
+
+    let mut temp_data = MaybeUninit::<[u8; 1000]>::uninit();
+    let temp = TempAllocator::new(unsafe { temp_data.assume_init_mut() });
 
     // normal type
     {

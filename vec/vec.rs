@@ -879,7 +879,7 @@ impl<T, A: Allocator> Drop for Drain<'_, T, A> {
 
 #[test]
 fn test_uses_provided_allocator() {
-    let mut temp_data = [core::mem::MaybeUninit::<u8>::uninit(); 1000];
+    let mut temp_data = [0; 1000];
     let temp = alloc::TempAllocator::new(&mut temp_data);
 
     let mut this: Vec<u32, _> = Vec::new_in(&temp);
