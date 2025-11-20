@@ -1,10 +1,10 @@
 [package]
-name = "vec"
+name = "containers"
 version = "0.0.0"
 edition.workspace = true
 
 [lib]
-path = "vec.rs"
+path = "containers.rs"
 
 [dependencies]
 alloc = { workspace = true }

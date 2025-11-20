@@ -8,9 +8,6 @@ use std::io;
 use alloc::{Allocator, Global, Layout};
 use scopeguard::ScopeGuard;
 
-#[cfg(test)]
-mod vec_stdtests;
-
 // NOTE: this is copypasted from std.
 //
 // Tiny Vecs are dumb. Skip to:
@@ -149,7 +146,7 @@ impl<T, A: Allocator> Vec<T, A> {
     /// # example
     ///
     /// ```
-    /// use vec::{Vec, ReserveError};
+    /// use containers::vec::{Vec, ReserveError};
     ///
     /// let mut v = Vec::new();
     /// v.try_push(1)?;

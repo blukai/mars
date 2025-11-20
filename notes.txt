@@ -16,3 +16,5 @@ TODO:
   - genvec must use vec instead of std::vec::Vec
   - arena alloc
   - combine nohash and fxhash into a single hash crate
+  - move genvec into collections
+  - introduce arrayvec

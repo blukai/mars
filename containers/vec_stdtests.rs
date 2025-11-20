@@ -20,8 +20,7 @@ use std::mem::swap;
 use std::ops::Bound::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::ReserveError::*;
-use crate::Vec;
+use crate::vec::{Vec, ReserveError::*};
 
 // use crate::testing::macros::struct_with_counted_drop; // manually implemeneted
 
@@ -99,13 +98,13 @@ macro_rules! struct_with_counted_drop {
 //   tests much.
 macro_rules! vec {
     () => (
-        $crate::Vec::new()
+        $crate::vec::Vec::new()
     );
     ($it:expr; $n:expr) => (
-        $crate::Vec::from_item($it, $n)
+        $crate::vec::Vec::from_item($it, $n)
     );
     ($($x:expr),+ $(,)?) => (
-        $crate::Vec::from_array([$($x),+])
+        $crate::vec::Vec::from_array([$($x),+])
     );
 }
 

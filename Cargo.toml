@@ -4,15 +4,14 @@ members = [
   "alloc",
   "arg",
   "bitbuf",
+  "containers",
   "flag",
   "fxhash",
   "genvec",
   "nohash",
   "rangealloc",
   "scopeguard",
-  "str",
   "varint",
-  "vec",
 ]
 
 [workspace.package]
@@ -26,15 +25,14 @@ allocator-api2 = { version = "0.3.1" }
 alloc = { path = "alloc" }
 arg = { path = "arg" }
 bitbuf = { path = "bitbuf" }
+containers = { path = "containers" }
 flag = { path = "flag" }
 fxhash = { path = "fxhash" }
 genvec = { path = "genvec" }
 nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
-str = { path = "str" }
 varint = { path = "varint" }
-vec = { path = "vec" }
 
 # workspace above
 # ----
@@ -52,26 +50,24 @@ path = "lib.rs"
 alloc = { workspace = true, optional = true }
 arg = { workspace = true, optional = true }
 bitbuf = { workspace = true, optional = true }
+containers = { workspace = true, optional = true }
 flag = { workspace = true, optional = true }
 fxhash = { workspace = true, optional = true }
 genvec = { workspace = true, optional = true }
 nohash = { workspace = true, optional = true }
 rangealloc = { workspace = true, optional = true }
 scopeguard = { workspace = true, optional = true }
-str = { workspace = true, optional = true }
 varint = { workspace = true, optional = true }
-vec = { workspace = true, optional = true }
 
 [features]
 alloc = ["dep:alloc"]
 arg = ["dep:arg"]
 bitbuf = ["dep:bitbuf"]
+containers = ["dep:containers", "alloc"]
 flag = ["dep:flag"]
 fxhash = ["dep:fxhash"]
 genvec = ["dep:genvec"]
 nohash = ["dep:nohash"]
 rangealloc = ["dep:rangealloc"]
 scopeguard = ["dep:scopeguard"]
-str = ["dep:str", "alloc"]
 varint = ["dep:varint", "bitbuf?/varint"]
-vec = ["dep:vec", "alloc"]

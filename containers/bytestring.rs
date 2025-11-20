@@ -10,7 +10,7 @@ use alloc::{Allocator, Global};
 use core::fmt::{self, Write as _};
 use core::{hash, ops};
 
-use vec::Vec;
+use crate::vec::Vec;
 
 // ----
 // impl macros

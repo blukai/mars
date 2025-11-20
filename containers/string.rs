@@ -5,7 +5,8 @@ pub use core::str::Utf8Error;
 use core::{mem, ops};
 
 use alloc::{Allocator, Global};
-use vec::{ReserveError, Vec};
+
+use crate::vec::{ReserveError, Vec, handle_reserve_error};
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
 ///
@@ -232,7 +233,7 @@ impl<A: Allocator> String<A> {
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         match Self::try_with_capacity_in(capacity, alloc) {
             Ok(this) => this,
-            Err(err) => vec::handle_reserve_error(err),
+            Err(err) => handle_reserve_error(err),
         }
     }
 
@@ -245,7 +246,7 @@ impl<A: Allocator> String<A> {
     #[inline]
     pub fn push_str(&mut self, s: &str) {
         if let Err(err) = self.try_push_str(s) {
-            vec::handle_reserve_error(err)
+            handle_reserve_error(err)
         }
     }
 
@@ -267,7 +268,7 @@ impl<A: Allocator> String<A> {
     #[inline]
     pub fn push(&mut self, ch: char) {
         if let Err(err) = self.try_push(ch) {
-            vec::handle_reserve_error(err)
+            handle_reserve_error(err)
         }
     }
 
@@ -333,7 +334,7 @@ impl<A: Allocator> String<A> {
     pub fn from_str_in(s: &str, alloc: A) -> Self {
         match Self::try_from_str_in(s, alloc) {
             Ok(this) => this,
-            Err(err) => vec::handle_reserve_error(err),
+            Err(err) => handle_reserve_error(err),
         }
     }
 
@@ -349,7 +350,7 @@ impl<A: Allocator> String<A> {
     pub fn from_char_in(ch: char, alloc: A) -> Self {
         match Self::try_from_char_in(ch, alloc) {
             Ok(this) => this,
-            Err(err) => vec::handle_reserve_error(err),
+            Err(err) => handle_reserve_error(err),
         }
     }
 
@@ -387,7 +388,7 @@ impl<A: Allocator> String<A> {
     pub fn from_format_args_in(args: fmt::Arguments<'_>, alloc: A) -> Self {
         match Self::try_from_format_args_in(args, alloc) {
             Ok(this) => this,
-            Err(FromFmtError::Reserve(err)) => vec::handle_reserve_error(err),
+            Err(FromFmtError::Reserve(err)) => handle_reserve_error(err),
             Err(FromFmtError::Fmt(err)) => panic!("could not format: {err}"),
         }
     }

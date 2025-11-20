@@ -127,6 +127,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
 
 [[package]]
+name = "containers"
+version = "0.0.0"
+dependencies = [
+ "alloc",
+ "scopeguard",
+]
+
+[[package]]
 name = "criterion"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -294,15 +302,14 @@ dependencies = [
  "alloc",
  "arg",
  "bitbuf",
+ "containers",
  "flag",
  "fxhash",
  "genvec",
  "nohash",
  "rangealloc",
  "scopeguard",
- "str",
  "varint",
- "vec",
 ]
 
 [[package]]
@@ -487,14 +494,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "str"
-version = "0.0.0"
-dependencies = [
- "alloc",
- "vec",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -527,14 +526,6 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "criterion-cycles-per-byte",
-]
-
-[[package]]
-name = "vec"
-version = "0.0.0"
-dependencies = [
- "alloc",
- "scopeguard",
 ]
 
 [[package]]
