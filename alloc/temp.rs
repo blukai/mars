@@ -1,6 +1,8 @@
-use core::cell::Cell;
+use core::cell::UnsafeCell;
 use core::marker::PhantomData;
+use core::ops;
 use core::ptr::{self, NonNull, null_mut};
+use std::cell::Cell;
 
 use scopeguard::ScopeGuard;
 
@@ -161,5 +163,80 @@ fn test_temp_storage() {
         temp.allocate(Layout::new::<()>());
         assert_eq!(temp.get_checkpoint().occupied, size_of::<()>());
         temp.reset();
+    }
+}
+
+// NOTE: const { } block is super important here.
+//   without it each access will have a branch init check which has pretty significant cost.
+//   see https://matklad.github.io/2020/10/03/fast-thread-locals-in-rust.html
+//
+//   benchmark code:
+//
+//   ```text
+//   fn sum_cell(steps: u32) -> u32 {
+//     thread_local! {
+//       static COUNTER_CELL: Cell<u32> = Cell::new(0);
+//     }
+//
+//     for step in 0..steps {
+//       COUNTER_CELL.with(|it| {
+//         let inc = step.wrapping_mul(step) ^ step;
+//         it.set(it.get().wrapping_add(inc))
+//       })
+//     }
+//     COUNTER_CELL.with(|it| it.get())
+//   }
+//
+//   fn sum_const_cell(steps: u32) -> u32 {
+//     thread_local! {
+//       static COUNTER_CELL: Cell<u32> = const { Cell::new(0) };
+//     }
+//
+//     for step in 0..steps {
+//       COUNTER_CELL.with(|it| {
+//         let inc = step.wrapping_mul(step) ^ step;
+//         it.set(it.get().wrapping_add(inc))
+//       })
+//     }
+//     COUNTER_CELL.with(|it| it.get())
+//   }
+//
+//   const STEPS: u32 = 1_000_000_000;
+//
+//   {
+//     let t = Instant::now();
+//     let r = sum_cell(STEPS);
+//     println!("cell:        {r} {}ms", t.elapsed().as_millis());
+//   }
+//
+//   {
+//     let t = Instant::now();
+//     let r = sum_const_cell(STEPS);
+//     println!("const cell:  {r} {}ms", t.elapsed().as_millis());
+//   }
+//   ```
+
+thread_local! {
+    static TEMP: UnsafeCell<TempAllocator<'static>> = const { UnsafeCell::new(TempAllocator::new(&mut [])) };
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Temp;
+
+impl Temp {
+    pub fn init(data: &'static mut [u8]) {
+        TEMP.with(|temp| unsafe {
+            let temp = &mut *temp.get();
+            assert!(temp.get_checkpoint().occupied == 0);
+            *temp = TempAllocator::new(data);
+        })
+    }
+}
+
+impl ops::Deref for Temp {
+    type Target = TempAllocator<'static>;
+
+    fn deref(&self) -> &Self::Target {
+        TEMP.with(|temp| unsafe { &*temp.get() })
     }
 }
