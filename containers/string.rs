@@ -6,7 +6,10 @@ use core::{mem, ops};
 
 use alloc::{Allocator, Global};
 
-use crate::vec::{ReserveError, Vec, handle_reserve_error};
+use crate::ReserveError;
+use crate::vec::Vec;
+#[cfg(not(no_global_oom_handling))]
+use crate::{handle_reserve_error, unwrap_reserve_result};
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
 ///
@@ -231,10 +234,7 @@ impl<A: Allocator> String<A> {
     #[cfg(not(no_global_oom_handling))]
     #[inline]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        match Self::try_with_capacity_in(capacity, alloc) {
-            Ok(this) => this,
-            Err(err) => handle_reserve_error(err),
-        }
+        unwrap_reserve_result(Self::try_with_capacity_in(capacity, alloc))
     }
 
     #[inline]
@@ -245,9 +245,7 @@ impl<A: Allocator> String<A> {
     #[cfg(not(no_global_oom_handling))]
     #[inline]
     pub fn push_str(&mut self, s: &str) {
-        if let Err(err) = self.try_push_str(s) {
-            handle_reserve_error(err)
-        }
+        unwrap_reserve_result(self.try_push_str(s))
     }
 
     #[inline]
@@ -267,9 +265,7 @@ impl<A: Allocator> String<A> {
     #[cfg(not(no_global_oom_handling))]
     #[inline]
     pub fn push(&mut self, ch: char) {
-        if let Err(err) = self.try_push(ch) {
-            handle_reserve_error(err)
-        }
+        unwrap_reserve_result(self.try_push(ch))
     }
 
     #[inline]
@@ -332,10 +328,7 @@ impl<A: Allocator> String<A> {
     #[cfg(not(no_global_oom_handling))]
     #[inline]
     pub fn from_str_in(s: &str, alloc: A) -> Self {
-        match Self::try_from_str_in(s, alloc) {
-            Ok(this) => this,
-            Err(err) => handle_reserve_error(err),
-        }
+        unwrap_reserve_result(Self::try_from_str_in(s, alloc))
     }
 
     #[inline]
@@ -348,10 +341,7 @@ impl<A: Allocator> String<A> {
     #[cfg(not(no_global_oom_handling))]
     #[inline]
     pub fn from_char_in(ch: char, alloc: A) -> Self {
-        match Self::try_from_char_in(ch, alloc) {
-            Ok(this) => this,
-            Err(err) => handle_reserve_error(err),
-        }
+        unwrap_reserve_result(Self::try_from_char_in(ch, alloc))
     }
 
     /// format in two passes; no overallocation.

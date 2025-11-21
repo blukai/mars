@@ -8,7 +8,10 @@ pub use arg;
 pub use bitbuf;
 
 #[cfg(feature = "containers")]
-pub use containers::*;
+pub use containers;
+// NOTE: it's nice to be able to type mars::format as equivalent of std::format.
+#[cfg(feature = "containers")]
+pub use containers::format;
 
 #[cfg(feature = "flag")]
 pub use flag;

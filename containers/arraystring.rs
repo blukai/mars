@@ -1,22 +1,7 @@
-use core::error::Error;
 use core::mem::{self, MaybeUninit};
 use core::{fmt, ops, slice};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CapacityError;
-
-impl Error for CapacityError {}
-
-impl fmt::Display for CapacityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("capacity overflow")
-    }
-}
-
-#[cold]
-pub fn handle_capacity_error(_err: CapacityError) -> ! {
-    panic!("capacity overflow")
-}
+use crate::{CapacityError, unwrap_capacity_result};
 
 #[repr(C)]
 pub struct ArrayString<const N: usize> {
@@ -29,7 +14,7 @@ impl<const N: usize> ArrayString<N> {
     pub const fn new() -> Self {
         Self {
             len: 0,
-            data: [MaybeUninit::uninit(); N],
+            data: unsafe { MaybeUninit::uninit().assume_init() },
         }
     }
 
@@ -56,6 +41,24 @@ impl<const N: usize> ArrayString<N> {
     #[inline]
     pub const fn is_full(&self) -> bool {
         self.capacity() == self.len()
+    }
+
+    /// SAFETY: new_len must be less than or equal to capacity.
+    /// the items at old_len..new_len must be initialized.
+    #[inline]
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert!(new_len <= self.capacity());
+        self.len = new_len;
+    }
+
+    #[inline]
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr().cast()
+    }
+
+    #[inline]
+    pub const fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.data.as_mut_ptr().cast()
     }
 
     #[inline]
@@ -96,9 +99,7 @@ impl<const N: usize> ArrayString<N> {
 
     #[inline]
     pub fn push_str(&mut self, s: &str) {
-        if let Err(err) = self.try_push_str(s) {
-            handle_capacity_error(err)
-        }
+        unwrap_capacity_result(self.try_push_str(s))
     }
 
     #[inline]
@@ -119,9 +120,7 @@ impl<const N: usize> ArrayString<N> {
 
     #[inline]
     pub fn push(&mut self, ch: char) {
-        if let Err(err) = self.try_push(ch) {
-            handle_capacity_error(err)
-        }
+        unwrap_capacity_result(self.try_push(ch))
     }
 
     #[inline]
@@ -162,10 +161,7 @@ impl<const N: usize> ArrayString<N> {
     }
 
     pub fn from_str(s: &str) -> Self {
-        match Self::try_from_str(s) {
-            Ok(this) => this,
-            Err(err) => handle_capacity_error(err),
-        }
+        unwrap_capacity_result(Self::try_from_str(s))
     }
 
     #[inline]
@@ -176,11 +172,8 @@ impl<const N: usize> ArrayString<N> {
     }
 
     #[inline]
-    pub fn from_char_in(ch: char) -> Self {
-        match Self::try_from_char(ch) {
-            Ok(this) => this,
-            Err(err) => handle_capacity_error(err),
-        }
+    pub fn from_char(ch: char) -> Self {
+        unwrap_capacity_result(Self::try_from_char(ch))
     }
 }
 

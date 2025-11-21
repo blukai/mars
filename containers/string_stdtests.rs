@@ -1,37 +1,10 @@
-use crate::string::String;
-use crate::vec::{ReserveError::*, Vec};
+// NOTE(blukai): this is copypasted from /rust/library/alloctests/tests/string.rs
+//  see other comment in vec_stdtests.rs; situation here is very similar to what's explained there.
 
-// NOTE(blukai): this is a simplified version of what can be found in
-// /rust/library/core/src/macros/mod.rs
-macro_rules! assert_matches {
-    ($left:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )? $(,)?) => {
-        match $left {
-            $( $pattern )|+ $( if $guard )? => {}
-            ref left_val => {
-                panic!(
-                    r#"assertion failed
-  left: {left_val:?}
- right: {right}"#,
-                    right = stringify!($($pattern)|+ $(if $guard)?),
-                );
-            }
-        }
-    };
-    ($left:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )?, $($arg:tt)+) => {
-        match $left {
-            $( $pattern )|+ $( if $guard )? => {}
-            ref left_val => {
-                panic!(
-                    r#"assertion failed: {args}
-  left: {left_val:?}
- right: {right}"#,
-                    right = stringify!($($pattern)|+ $(if $guard)?),
-                    args = format_args!($($arg)+)
-                );
-            }
-        }
-    };
-}
+use crate::ReserveError::*;
+use crate::string::String;
+use crate::testing::assert_matches;
+use crate::vec::Vec;
 
 // pub trait IntoCow<'a, B: ?Sized>
 // where

@@ -19,79 +19,13 @@ use std::fmt::Debug;
 use std::mem::swap;
 use std::ops::Bound::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::ptr::NonNull;
 
-use crate::vec::{Vec, ReserveError::*};
+use alloc::{AllocError, Allocator, Layout, System};
 
-// use crate::testing::macros::struct_with_counted_drop; // manually implemeneted
-
-// NOTE(blukai): this is a simplified version of what can be found in
-// /rust/library/core/src/macros/mod.rs
-macro_rules! assert_matches {
-    ($left:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )? $(,)?) => {
-        match $left {
-            $( $pattern )|+ $( if $guard )? => {}
-            ref left_val => {
-                panic!(
-                    r#"assertion failed
-  left: {left_val:?}
- right: {right}"#,
-                    right = stringify!($($pattern)|+ $(if $guard)?),
-                );
-            }
-        }
-    };
-    ($left:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )?, $($arg:tt)+) => {
-        match $left {
-            $( $pattern )|+ $( if $guard )? => {}
-            ref left_val => {
-                panic!(
-                    r#"assertion failed: {args}
-  left: {left_val:?}
- right: {right}"#,
-                    right = stringify!($($pattern)|+ $(if $guard)?),
-                    args = format_args!($($arg)+)
-                );
-            }
-        }
-    };
-}
-
-// NOTE(blukai): this is from /rust/library/alloctests/testing/macros.rs
-macro_rules! struct_with_counted_drop {
-    ($struct_name:ident $(( $( $elt_ty:ty ),+ ))?, $drop_counter:ident $( => $drop_stmt:expr )? ) => {
-        thread_local! {static $drop_counter: ::core::cell::Cell<u32> = ::core::cell::Cell::new(0);}
-
-        #[derive(Clone, Debug, PartialEq)]
-        struct $struct_name $(( $( $elt_ty ),+ ))?;
-
-        impl ::std::ops::Drop for $struct_name {
-            fn drop(&mut self) {
-                $drop_counter.set($drop_counter.get() + 1);
-
-                $($drop_stmt(self))?
-            }
-        }
-    };
-    ($struct_name:ident $(( $( $elt_ty:ty ),+ ))?, $drop_counter:ident[ $drop_key:expr,$key_ty:ty ] $( => $drop_stmt:expr )? ) => {
-        thread_local! {
-            static $drop_counter: ::core::cell::RefCell<::std::collections::HashMap<$key_ty, u32>> =
-                ::core::cell::RefCell::new(::std::collections::HashMap::new());
-        }
-
-        #[derive(Clone, Debug, PartialEq)]
-        struct $struct_name $(( $( $elt_ty ),+ ))?;
-
-        impl ::std::ops::Drop for $struct_name {
-            fn drop(&mut self) {
-                $drop_counter.with_borrow_mut(|counter| {
-                    *counter.entry($drop_key(self)).or_default() += 1;
-                });
-
-                $($drop_stmt(self))?
-            }
-        }
-    };
-}
+use crate::ReserveError::*;
+use crate::testing::{assert_matches, struct_with_counted_drop};
+use crate::vec::Vec;
 
 // NOTE(blukai): i do not want vec macro.
 //   but it's easier/nicer to have a local version of it in this file to not have to change std
@@ -1128,7 +1062,7 @@ fn test_into_iter_as_slice() {
     assert_eq!(into_iter.as_slice(), &[]);
 }
 
-// UNIMPLEMENTED(blukai): @IntoIter.
+// UNSTABLE(blukai): slice_iter_mut_as_mut_slice
 //
 // #[test]
 // fn test_into_iter_as_mut_slice() {
@@ -1140,6 +1074,8 @@ fn test_into_iter_as_slice() {
 //     assert_eq!(into_iter.next().unwrap(), 'x');
 //     assert_eq!(into_iter.as_slice(), &['y', 'c']);
 // }
+
+// TODO(blukai): IntoIter (/rust/library/alloc/src/vec/into_iter.rs).
 //
 // #[test]
 // fn test_into_iter_debug() {
@@ -1148,11 +1084,13 @@ fn test_into_iter_as_slice() {
 //     let debug = format!("{into_iter:?}");
 //     assert_eq!(debug, "IntoIter(['a', 'b', 'c'])");
 // }
-//
-// #[test]
-// fn test_into_iter_count() {
-//     assert_eq!([1, 2, 3].into_iter().count(), 3);
-// }
+
+#[test]
+fn test_into_iter_count() {
+    assert_eq!([1, 2, 3].into_iter().count(), 3);
+}
+
+// UNSTABLE(blukai): iter_next_chunk
 //
 // #[test]
 // fn test_into_iter_next_chunk() {
@@ -1162,36 +1100,38 @@ fn test_into_iter_as_slice() {
 //     assert_eq!(iter.next_chunk().unwrap(), [b'r', b'e', b'm']); // N is inferred as 3
 //     assert_eq!(iter.next_chunk::<4>().unwrap_err().as_slice(), &[]); // N is explicitly 4
 // }
-//
-// #[test]
-// fn test_into_iter_clone() {
-//     fn iter_equal<I: Iterator<Item = i32>>(it: I, slice: &[i32]) {
-//         let v: Vec<i32> = it.collect();
-//         assert_eq!(&v[..], slice);
-//     }
-//     let mut it = [1, 2, 3].into_iter();
-//     iter_equal(it.clone(), &[1, 2, 3]);
-//     assert_eq!(it.next(), Some(1));
-//     let mut it = it.rev();
-//     iter_equal(it.clone(), &[3, 2]);
-//     assert_eq!(it.next(), Some(3));
-//     iter_equal(it.clone(), &[2]);
-//     assert_eq!(it.next(), Some(2));
-//     iter_equal(it.clone(), &[]);
-//     assert_eq!(it.next(), None);
-// }
-//
-// #[test]
-// #[cfg_attr(not(panic = "unwind"), ignore = "test requires unwinding support")]
-// fn test_into_iter_leak() {
-//     struct_with_counted_drop!(D(bool), DROPS => |this: &D| if this.0 { panic!("panic in `drop`"); });
-//
-//     let v = vec![D(false), D(true), D(false)];
-//
-//     catch_unwind(move || drop(v.into_iter())).ok();
-//
-//     assert_eq!(DROPS.get(), 3);
-// }
+
+#[test]
+fn test_into_iter_clone() {
+    fn iter_equal<I: Iterator<Item = i32>>(it: I, slice: &[i32]) {
+        let v: Vec<i32> = it.collect();
+        assert_eq!(&v[..], slice);
+    }
+    let mut it = [1, 2, 3].into_iter();
+    iter_equal(it.clone(), &[1, 2, 3]);
+    assert_eq!(it.next(), Some(1));
+    let mut it = it.rev();
+    iter_equal(it.clone(), &[3, 2]);
+    assert_eq!(it.next(), Some(3));
+    iter_equal(it.clone(), &[2]);
+    assert_eq!(it.next(), Some(2));
+    iter_equal(it.clone(), &[]);
+    assert_eq!(it.next(), None);
+}
+
+#[test]
+#[cfg_attr(not(panic = "unwind"), ignore = "test requires unwinding support")]
+fn test_into_iter_leak() {
+    struct_with_counted_drop!(D(bool), DROPS => |this: &D| if this.0 { panic!("panic in `drop`"); });
+
+    let v = vec![D(false), D(true), D(false)];
+
+    catch_unwind(move || drop(v.into_iter())).ok();
+
+    assert_eq!(DROPS.get(), 3);
+}
+
+// UNSTABLE(blukai): iter_advance_by
 //
 // #[test]
 // fn test_into_iter_advance_by() {
@@ -1219,36 +1159,38 @@ fn test_into_iter_as_slice() {
 //
 //     assert_eq!(i.len(), 0);
 // }
-//
-// #[test]
-// fn test_into_iter_drop_allocator() {
-//     struct ReferenceCountedAllocator<'a>(#[allow(dead_code)] DropCounter<'a>);
-//
-//     unsafe impl Allocator for ReferenceCountedAllocator<'_> {
-//         fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-//             System.allocate(layout)
-//         }
-//
-//         unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-//             // Safety: Invariants passed to caller.
-//             unsafe { System.deallocate(ptr, layout) }
-//         }
-//     }
-//
-//     let mut drop_count = 0;
-//
-//     let allocator = ReferenceCountedAllocator(DropCounter {
-//         count: &mut drop_count,
-//     });
-//     let _ = Vec::<u32, _>::new_in(allocator);
-//     assert_eq!(drop_count, 1);
-//
-//     let allocator = ReferenceCountedAllocator(DropCounter {
-//         count: &mut drop_count,
-//     });
-//     let _ = Vec::<u32, _>::new_in(allocator).into_iter();
-//     assert_eq!(drop_count, 2);
-// }
+
+#[test]
+fn test_into_iter_drop_allocator() {
+    struct ReferenceCountedAllocator<'a>(#[allow(dead_code)] DropCounter<'a>);
+
+    unsafe impl Allocator for ReferenceCountedAllocator<'_> {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+            System.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // Safety: Invariants passed to caller.
+            unsafe { System.deallocate(ptr, layout) }
+        }
+    }
+
+    let mut drop_count = 0;
+
+    let allocator = ReferenceCountedAllocator(DropCounter {
+        count: &mut drop_count,
+    });
+    let _ = Vec::<u32, _>::new_in(allocator);
+    assert_eq!(drop_count, 1);
+
+    let allocator = ReferenceCountedAllocator(DropCounter {
+        count: &mut drop_count,
+    });
+    let _ = Vec::<u32, _>::new_in(allocator).into_iter();
+    assert_eq!(drop_count, 2);
+}
+
+// UNSTABLE(blukai): iter_next_chunk, iter_advance_by
 //
 // #[test]
 // fn test_into_iter_zst() {
@@ -1278,6 +1220,8 @@ fn test_into_iter_as_slice() {
 //     it.next_chunk::<4>().unwrap_err();
 //     drop(it);
 // }
+
+// UNSTABLE(blukai): specialization
 //
 // #[test]
 // fn test_from_iter_specialization() {
@@ -2820,8 +2764,7 @@ fn test_vec_swap() {
 //
 // #[test]
 // fn test_box_zero_allocator() {
-//     // NOTE(blukai):
-//     // use core::alloc::AllocError;
+//     use core::alloc::AllocError;
 //     use core::cell::RefCell;
 //     use std::collections::HashSet;
 //
