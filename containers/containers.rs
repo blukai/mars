@@ -1,7 +1,6 @@
 pub mod memory;
 pub mod string;
 pub mod vector;
-// pub mod bytestring;
 
 #[cfg(test)]
 pub(crate) mod testutil;
