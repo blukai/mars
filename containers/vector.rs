@@ -126,6 +126,16 @@ impl<T, M: Memory<T>> Vector<T, M> {
         self.len = new_len;
     }
 
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self.mem.as_ptr(), self.len()) }
+    }
+
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
+    }
+
     /// SAFETY: `new_cap` must be greater then the current capacity.
     #[inline]
     unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError> {
@@ -356,14 +366,14 @@ impl<T, M: Memory<T>> ops::Deref for Vector<T, M> {
 
     #[inline]
     fn deref(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.mem.as_ptr(), self.len()) }
+        self.as_slice()
     }
 }
 
 impl<T, M: Memory<T>> ops::DerefMut for Vector<T, M> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
+        self.as_mut_slice()
     }
 }
 
@@ -382,7 +392,7 @@ impl<T, M: Memory<T> + Default> Default for Vector<T, M> {
 
 impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for Vector<T, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(ops::Deref::deref(self), f)
+        fmt::Debug::fmt(self.as_slice(), f)
     }
 }
 

@@ -197,6 +197,20 @@ impl<M: Memory<u8>> String<M> {
     }
 
     #[inline]
+    pub fn as_str(&self) -> &str {
+        // SAFETY: contents are stipulated to be valid utf-8, invalid contents are an error at
+        // construction.
+        unsafe { str::from_utf8_unchecked(self.vec.as_slice()) }
+    }
+
+    #[inline]
+    pub fn as_mut_str(&mut self) -> &mut str {
+        // SAFETY: contents are stipulated to be valid UTF-8, invalid contents are an error at
+        // construction.
+        unsafe { str::from_utf8_unchecked_mut(self.vec.as_mut_slice()) }
+    }
+
+    #[inline]
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
         self.vec.try_reserve_amortized(additional)
     }
@@ -272,7 +286,7 @@ impl<M: Memory<u8>> String<M> {
 
     #[inline]
     pub fn try_from_utf8(vec: Vector<u8, M>) -> Result<Self, FromUtf8Error<M>> {
-        match core::str::from_utf8(&vec) {
+        match core::str::from_utf8(vec.as_slice()) {
             Ok(_) => Ok(unsafe { Self::from_utf8_unchecked(vec) }),
             Err(error) => Err(FromUtf8Error { bytes: vec, error }),
         }
@@ -325,18 +339,35 @@ impl<M: Memory<u8>> ops::Deref for String<M> {
 
     #[inline]
     fn deref(&self) -> &str {
-        // SAFETY: contents are stipulated to be valid utf-8, invalid contents are an error at
-        // construction.
-        unsafe { str::from_utf8_unchecked(&self.vec) }
+        self.as_str()
     }
 }
 
 impl<M: Memory<u8>> ops::DerefMut for String<M> {
     #[inline]
     fn deref_mut(&mut self) -> &mut str {
-        // SAFETY: contents are stipulated to be valid UTF-8, invalid contents are an error at
-        // construction.
-        unsafe { str::from_utf8_unchecked_mut(&mut self.vec) }
+        self.as_mut_str()
+    }
+}
+
+impl<M: Memory<u8>> AsRef<str> for String<M> {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self
+    }
+}
+
+impl<M: Memory<u8>> AsRef<std::ffi::OsStr> for String<M> {
+    #[inline]
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.as_str().as_ref()
+    }
+}
+
+impl<M: Memory<u8>> AsRef<std::path::Path> for String<M> {
+    #[inline]
+    fn as_ref(&self) -> &std::path::Path {
+        std::path::Path::new(self)
     }
 }
 
@@ -349,14 +380,14 @@ impl<M: Memory<u8> + Default> Default for String<M> {
 impl<M: Memory<u8>> fmt::Debug for String<M> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
+        fmt::Debug::fmt(self.as_str(), f)
     }
 }
 
 impl<M: Memory<u8>> fmt::Display for String<M> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
+        fmt::Display::fmt(self.as_str(), f)
     }
 }
 
@@ -452,6 +483,22 @@ pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
 #[expect(type_alias_bounds)]
 pub type FixedGrowableString<const N: usize, A: Allocator> = String<FixedGrowableMemory<u8, N, A>>;
 
+#[macro_export]
+macro_rules! format {
+    (try in $alloc:expr, $($arg:tt)*) => {
+        $crate::string::String::try_from_format_args_in(
+            format_args!($($arg)*),
+            $crate::memory::GrowableMemory::new_in($alloc),
+        )
+    };
+    (in $alloc:expr, $($arg:tt)*) => {
+        $crate::string::String::from_format_args_in(
+            format_args!($($arg)*),
+            $crate::memory::GrowableMemory::new_in($alloc),
+        )
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use crate::memory::GrowableMemory;
@@ -459,15 +506,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_from_format_args() {
+    fn test_format_macro() {
         let mut temp_data = [0; 1000];
         let temp = alloc::TempAllocator::new(&mut temp_data);
 
         let expected = std::format!("hello, {who}! {:.4}", 42.69, who = "sailor");
-        let actual = String::from_format_args_in(
-            format_args!("hello, {who}! {:.4}", 42.69, who = "sailor"),
-            GrowableMemory::new_in(&temp),
-        );
+        let actual = format!(in &temp, "hello, {who}! {:.4}", 42.69, who = "sailor");
         assert_eq!(expected, actual);
     }
 
