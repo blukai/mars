@@ -29,11 +29,6 @@ impl<const N: usize> ArrayString<N> {
     }
 
     #[inline]
-    pub const fn remaining_capacity(&self) -> usize {
-        self.capacity() - self.len()
-    }
-
-    #[inline]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -41,6 +36,11 @@ impl<const N: usize> ArrayString<N> {
     #[inline]
     pub const fn is_full(&self) -> bool {
         self.capacity() == self.len()
+    }
+
+    #[inline]
+    pub const fn remaining_capacity(&self) -> usize {
+        self.capacity() - self.len()
     }
 
     /// SAFETY: new_len must be less than or equal to capacity.

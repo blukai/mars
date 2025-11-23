@@ -4,10 +4,10 @@ use core::ops;
 
 use alloc::Layout;
 
-pub mod arraystring;
-pub mod arrayvec;
-pub mod bytestring;
-pub mod string;
+// pub mod arraystring;
+// pub mod arrayvec;
+// pub mod bytestring;
+// pub mod string;
 pub mod vec;
 
 // TODO: get rid of this when `slice_range` feature is stable.
@@ -36,83 +36,45 @@ where
     }
 }
 
-// ----
-// heap-collection err
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReserveError {
-    /// capacity cannot exceed `isize::MAX`.
-    CapacityOverflow,
-    AllocError {
-        // NOTE: layout is included because `std::alloc::handle_alloc_error` wants it.
-        layout: Layout,
-    },
-}
-
-impl Error for ReserveError {}
-
-impl fmt::Display for ReserveError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::CapacityOverflow => f.write_str("capacity exceeded `isize::MAX`"),
-            Self::AllocError { .. } => f.write_str("memory allocation failed"),
-        }
-    }
-}
-
-#[cfg(not(no_global_oom_handling))]
-#[cold]
-fn handle_reserve_error(err: ReserveError) -> ! {
-    match err {
-        ReserveError::CapacityOverflow => panic!("capacity overflow"),
-        ReserveError::AllocError { layout, .. } => alloc::handle_alloc_error(layout),
-    }
-}
-
-#[cfg(not(no_global_oom_handling))]
-#[inline]
-fn unwrap_reserve_result<T>(result: Result<T, ReserveError>) -> T {
-    match result {
-        Ok(ok) => ok,
-        Err(err) => handle_reserve_error(err),
-    }
-}
-
-// ----
-// stack-collection err
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CapacityError;
-
-impl Error for CapacityError {}
-
-impl fmt::Display for CapacityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("capacity overflow")
-    }
-}
-
-#[cold]
-fn handle_capacity_error(_err: CapacityError) -> ! {
-    panic!("capacity overflow")
-}
-
-#[inline]
-fn unwrap_capacity_result<T>(result: Result<T, CapacityError>) -> T {
-    match result {
-        Ok(ok) => ok,
-        Err(err) => handle_capacity_error(err),
-    }
-}
+// // ----
+// // stack-collection err
+// //
+// // TODO: use AllocError.
+//
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct CapacityError;
+//
+// impl Error for CapacityError {}
+//
+// impl fmt::Display for CapacityError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.write_str("capacity overflow")
+//     }
+// }
+//
+// #[cold]
+// fn handle_capacity_error(_err: CapacityError) -> ! {
+//     panic!("capacity overflow")
+// }
+//
+// #[inline]
+// fn unwrap_capacity_result<T>(result: Result<T, CapacityError>) -> T {
+//     match result {
+//         Ok(ok) => ok,
+//         Err(err) => handle_capacity_error(err),
+//     }
+// }
 
 // ----
 // test
+//
+// TODO: consider moving this out.
 
-#[cfg(test)]
-mod vec_stdtests;
+// #[cfg(test)]
+// mod vec_stdtests;
 
-#[cfg(test)]
-mod string_stdtests;
+// #[cfg(test)]
+// mod string_stdtests;
 
 #[cfg(test)]
 mod testing {

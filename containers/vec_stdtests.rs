@@ -32,7 +32,7 @@ use crate::vec::Vec;
 //   tests much.
 macro_rules! vec {
     () => (
-        $crate::vec::Vec::new()
+        $crate::vec::Vec::empty()
     );
     ($it:expr; $n:expr) => (
         $crate::vec::Vec::from_item($it, $n)
@@ -67,8 +67,8 @@ fn test_double_drop() {
     let (mut count_x, mut count_y) = (0, 0);
     {
         let mut tv = TwoVec {
-            x: Vec::new(),
-            y: Vec::new(),
+            x: Vec::empty(),
+            y: Vec::empty(),
         };
         tv.x.push(DropCounter {
             count: &mut count_x,
@@ -91,10 +91,10 @@ fn test_double_drop() {
 
 #[test]
 fn test_reserve() {
-    let mut v = Vec::new();
+    let mut v = Vec::empty();
     assert_eq!(v.capacity(), 0);
 
-    v.reserve(2);
+    v.reserve_amortized(2);
     assert!(v.capacity() >= 2);
 
     for i in 0..16 {
@@ -102,18 +102,18 @@ fn test_reserve() {
     }
 
     assert!(v.capacity() >= 16);
-    v.reserve(16);
+    v.reserve_amortized(16);
     assert!(v.capacity() >= 32);
 
     v.push(16);
 
-    v.reserve(16);
+    v.reserve_amortized(16);
     assert!(v.capacity() >= 33)
 }
 
 #[test]
 fn test_zst_capacity() {
-    assert_eq!(Vec::<()>::new().capacity(), usize::MAX);
+    assert_eq!(Vec::<()>::empty().capacity(), usize::MAX);
 }
 
 #[test]
@@ -512,15 +512,15 @@ fn test_split_at_mut() {
 
 #[test]
 fn zero_sized_values() {
-    let mut v = Vec::new();
+    let mut v = Vec::empty();
     assert_eq!(v.len(), 0);
     v.push(());
     assert_eq!(v.len(), 1);
     v.push(());
     assert_eq!(v.len(), 2);
-    assert_eq!(v.pop(), Some(()));
-    assert_eq!(v.pop(), Some(()));
-    assert_eq!(v.pop(), None);
+    assert_eq!(v.maybe_pop(), Some(()));
+    assert_eq!(v.maybe_pop(), Some(()));
+    assert_eq!(v.maybe_pop(), None);
 
     assert_eq!(v.iter().count(), 0);
     v.push(());
@@ -814,7 +814,7 @@ fn test_drain_inclusive_range() {
 
     let mut v: Vec<String> = (0..=5).map(|x| x.to_string()).collect();
     for _ in v.drain(0..=5) {}
-    assert_eq!(v, Vec::<String>::new());
+    assert_eq!(v, Vec::<String>::empty());
 
     let mut v: Vec<_> = (0..=5).map(|x| x.to_string()).collect();
     for _ in v.drain(0..=3) {}
@@ -1180,13 +1180,13 @@ fn test_into_iter_drop_allocator() {
     let allocator = ReferenceCountedAllocator(DropCounter {
         count: &mut drop_count,
     });
-    let _ = Vec::<u32, _>::new_in(allocator);
+    let _ = Vec::<u32, _>::empty_in(allocator);
     assert_eq!(drop_count, 1);
 
     let allocator = ReferenceCountedAllocator(DropCounter {
         count: &mut drop_count,
     });
-    let _ = Vec::<u32, _>::new_in(allocator).into_iter();
+    let _ = Vec::<u32, _>::empty_in(allocator).into_iter();
     assert_eq!(drop_count, 2);
 }
 
@@ -1797,7 +1797,7 @@ fn test_into_iter_drop_allocator() {
 fn test_reserve_exact() {
     // This is all the same as test_reserve
 
-    let mut v = Vec::new();
+    let mut v = Vec::empty();
     assert_eq!(v.capacity(), 0);
 
     v.reserve_exact(2);
@@ -1846,27 +1846,27 @@ fn test_try_reserve() {
 
     {
         // Note: basic stuff is checked by test_reserve
-        let mut empty_bytes: Vec<u8> = Vec::new();
+        let mut empty_bytes: Vec<u8> = Vec::empty();
 
         // Check isize::MAX doesn't count as an overflow
-        if let Err(CapacityOverflow) = empty_bytes.try_reserve(MAX_CAP) {
+        if let Err(CapacityOverflow) = empty_bytes.try_reserve_amortized(MAX_CAP) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
         // Play it again, frank! (just to be sure)
-        if let Err(CapacityOverflow) = empty_bytes.try_reserve(MAX_CAP) {
+        if let Err(CapacityOverflow) = empty_bytes.try_reserve_amortized(MAX_CAP) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
 
         // Check isize::MAX + 1 does count as overflow
         assert_matches!(
-            empty_bytes.try_reserve(MAX_CAP + 1),
+            empty_bytes.try_reserve_amortized(MAX_CAP + 1),
             Err(CapacityOverflow),
             "isize::MAX + 1 should trigger an overflow!"
         );
 
         // Check usize::MAX does count as overflow
         assert_matches!(
-            empty_bytes.try_reserve(MAX_USIZE),
+            empty_bytes.try_reserve_amortized(MAX_USIZE),
             Err(CapacityOverflow),
             "usize::MAX should trigger an overflow!"
         );
@@ -1876,22 +1876,22 @@ fn test_try_reserve() {
         // Same basic idea, but with non-zero len
         let mut ten_bytes: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 10) {
+        if let Err(CapacityOverflow) = ten_bytes.try_reserve_amortized(MAX_CAP - 10) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if let Err(CapacityOverflow) = ten_bytes.try_reserve(MAX_CAP - 10) {
+        if let Err(CapacityOverflow) = ten_bytes.try_reserve_amortized(MAX_CAP - 10) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
 
         assert_matches!(
-            ten_bytes.try_reserve(MAX_CAP - 9),
+            ten_bytes.try_reserve_amortized(MAX_CAP - 9),
             Err(CapacityOverflow),
             "isize::MAX + 1 should trigger an overflow!"
         );
 
         // Should always overflow in the add-to-len
         assert_matches!(
-            ten_bytes.try_reserve(MAX_USIZE),
+            ten_bytes.try_reserve_amortized(MAX_USIZE),
             Err(CapacityOverflow),
             "usize::MAX should trigger an overflow!"
         );
@@ -1901,22 +1901,22 @@ fn test_try_reserve() {
         // Same basic idea, but with interesting type size
         let mut ten_u32s: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        if let Err(CapacityOverflow) = ten_u32s.try_reserve(MAX_CAP / 4 - 10) {
+        if let Err(CapacityOverflow) = ten_u32s.try_reserve_amortized(MAX_CAP / 4 - 10) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
-        if let Err(CapacityOverflow) = ten_u32s.try_reserve(MAX_CAP / 4 - 10) {
+        if let Err(CapacityOverflow) = ten_u32s.try_reserve_amortized(MAX_CAP / 4 - 10) {
             panic!("isize::MAX shouldn't trigger an overflow!");
         }
 
         assert_matches!(
-            ten_u32s.try_reserve(MAX_CAP / 4 - 9),
+            ten_u32s.try_reserve_amortized(MAX_CAP / 4 - 9),
             Err(CapacityOverflow),
             "isize::MAX + 1 should trigger an overflow!"
         );
 
         // Should fail in the mul-by-size
         assert_matches!(
-            ten_u32s.try_reserve(MAX_USIZE - 20),
+            ten_u32s.try_reserve_amortized(MAX_USIZE - 20),
             Err(CapacityOverflow),
             "usize::MAX should trigger an overflow!"
         );
@@ -1933,7 +1933,7 @@ fn test_try_reserve_exact() {
     const MAX_USIZE: usize = usize::MAX;
 
     {
-        let mut empty_bytes: Vec<u8> = Vec::new();
+        let mut empty_bytes: Vec<u8> = Vec::empty();
 
         if let Err(CapacityOverflow) = empty_bytes.try_reserve_exact(MAX_CAP) {
             panic!("isize::MAX shouldn't trigger an overflow!");
@@ -2952,7 +2952,7 @@ fn test_vec_from_array_mut_ref() {
 fn vec_null_ptr_roundtrip() {
     let ptr = std::ptr::from_ref(&42);
     let zero = ptr.with_addr(0);
-    let roundtripped = vec![zero; 1].pop().unwrap();
+    let roundtripped = vec![zero; 1].maybe_pop().unwrap();
     let new = roundtripped.with_addr(ptr.addr());
     unsafe { new.read() };
 }

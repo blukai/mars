@@ -304,7 +304,7 @@ pub struct ByteString<A: Allocator = Global>(pub Vec<u8, A>);
 
 impl Default for ByteString {
     fn default() -> Self {
-        ByteString(Vec::new())
+        ByteString(Vec::empty())
     }
 }
 

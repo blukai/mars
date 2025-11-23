@@ -175,7 +175,7 @@ impl<A: Allocator> String<A> {
     #[inline]
     pub const fn new_in(alloc: A) -> Self {
         Self {
-            vec: Vec::new_in(alloc),
+            vec: Vec::empty_in(alloc),
         }
     }
 
@@ -187,11 +187,6 @@ impl<A: Allocator> String<A> {
     #[inline]
     pub const fn len(&self) -> usize {
         self.vec.len()
-    }
-
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.vec.is_empty()
     }
 
     #[inline]
@@ -209,12 +204,12 @@ impl<A: Allocator> String<A> {
     }
 
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), ReserveError> {
-        self.vec.try_reserve(additional)
+        self.vec.try_reserve_amortized(additional)
     }
 
     #[cfg(not(no_global_oom_handling))]
     pub fn reserve(&mut self, additional: usize) {
-        self.vec.reserve(additional)
+        self.vec.reserve_amortized(additional)
     }
 
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), ReserveError> {
@@ -360,7 +355,7 @@ impl<A: Allocator> String<A> {
             f.write_fmt(args).map_err(FromFmtError::Fmt)?;
             f.written()
         };
-        let mut buf = Vec::new_in(alloc);
+        let mut buf = Vec::empty_in(alloc);
         buf.try_reserve_exact(size).map_err(FromFmtError::Reserve)?;
 
         let mut f = Formatter::from_raw_parts(buf.as_mut_ptr(), size);
