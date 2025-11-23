@@ -4,12 +4,10 @@ use core::marker::PhantomData;
 pub use core::str::Utf8Error;
 use core::{mem, ops};
 
-use alloc::{Allocator, Global};
+use alloc::{AllocError, Allocator, Global};
 
-use crate::ReserveError;
-use crate::vec::Vec;
-#[cfg(not(no_global_oom_handling))]
-use crate::{handle_reserve_error, unwrap_reserve_result};
+use crate::memory::{FixedGrowableMemory, FixedMemory, GrowableMemory, Memory};
+use crate::vector::Vector;
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
 ///
@@ -100,7 +98,7 @@ impl fmt::Write for Formatter<'_> {
 
 #[derive(Debug)]
 pub enum FromFmtError {
-    Reserve(ReserveError),
+    Alloc(AllocError),
     Fmt(fmt::Error),
 }
 
@@ -109,26 +107,25 @@ impl Error for FromFmtError {}
 impl fmt::Display for FromFmtError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Reserve(e) => fmt::Display::fmt(e, f),
+            Self::Alloc(e) => fmt::Display::fmt(e, f),
             Self::Fmt(e) => fmt::Display::fmt(e, f),
         }
     }
 }
 
-#[cfg_attr(not(no_global_oom_handling), derive(Clone))]
-pub struct FromUtf8Error<A: Allocator> {
-    bytes: Vec<u8, A>,
+pub struct FromUtf8Error<M: Memory<u8>> {
+    bytes: Vector<u8, M>,
     error: Utf8Error,
 }
 
-impl<A: Allocator> FromUtf8Error<A> {
+impl<M: Memory<u8>> FromUtf8Error<M> {
     /// returns a slice of [`u8`]s bytes that were attempted to convert to a `String`.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..]
     }
 
     /// returns the bytes that were attempted to convert to a `String`.
-    pub fn into_bytes(self) -> Vec<u8, A> {
+    pub fn into_bytes(self) -> Vector<u8, M> {
         self.bytes
     }
 
@@ -137,15 +134,15 @@ impl<A: Allocator> FromUtf8Error<A> {
     }
 }
 
-impl<A: Allocator> Error for FromUtf8Error<A> {}
+impl<M: Memory<u8>> Error for FromUtf8Error<M> {}
 
-impl<A: Allocator> fmt::Display for FromUtf8Error<A> {
+impl<M: Memory<u8>> fmt::Display for FromUtf8Error<M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.error, f)
     }
 }
 
-impl<A: Allocator> fmt::Debug for FromUtf8Error<A> {
+impl<M: Memory<u8>> fmt::Debug for FromUtf8Error<M> {
     #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FromUtf8Error")
@@ -155,120 +152,85 @@ impl<A: Allocator> fmt::Debug for FromUtf8Error<A> {
     }
 }
 
-impl<A: Allocator> PartialEq for FromUtf8Error<A> {
+impl<M: Memory<u8>> PartialEq for FromUtf8Error<M> {
     fn eq(&self, other: &Self) -> bool {
         PartialEq::eq(&self.bytes, &other.bytes) && PartialEq::eq(&self.error, &other.error)
     }
 }
 
-impl<A: Allocator> Eq for FromUtf8Error<A> {}
+impl<M: Memory<u8>> Eq for FromUtf8Error<M> {}
 
-/// a utf-8–encoded, growable string.
-///
-/// a simpler version, a subset of [`std::string::String`] that works with [`Allocator`] trait.
-/// api attempts to be (but not always is) compatible with [`std::string::String`].
-pub struct String<A: Allocator = Global> {
-    vec: Vec<u8, A>,
+pub struct String<M: Memory<u8>> {
+    vec: Vector<u8, M>,
 }
 
-impl<A: Allocator> String<A> {
+const _: () = {
+    let this = size_of::<String<GrowableMemory<u8, Global>>>();
+    let std = size_of::<std::string::String>();
+    assert!(this <= std)
+};
+
+impl<M: Memory<u8>> String<M> {
     #[inline]
-    pub const fn new_in(alloc: A) -> Self {
+    pub fn new_in(mem: M) -> Self {
         Self {
-            vec: Vec::empty_in(alloc),
+            vec: Vector::new_in(mem),
         }
     }
 
     #[inline]
-    pub const fn capacity(&self) -> usize {
-        self.vec.capacity()
+    pub fn cap(&self) -> usize {
+        self.vec.cap()
     }
 
     #[inline]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.vec.len()
     }
 
+    /// SAFETY: new_len must be less than or equal to capacity.
+    /// the items at old_len..new_len must be initialized.
     #[inline]
-    pub const fn as_str(&self) -> &str {
-        // SAFETY: contents are stipulated to be valid utf-8, invalid contents are an error at
-        // construction.
-        unsafe { str::from_utf8_unchecked(self.vec.as_slice()) }
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert!(new_len <= self.cap());
+        unsafe { self.vec.set_len(new_len) };
     }
 
     #[inline]
-    pub const fn as_mut_str(&mut self) -> &mut str {
-        // SAFETY: contents are stipulated to be valid UTF-8, invalid contents are an error at
-        // construction.
-        unsafe { str::from_utf8_unchecked_mut(self.vec.as_mut_slice()) }
-    }
-
-    pub fn try_reserve(&mut self, additional: usize) -> Result<(), ReserveError> {
+    pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
         self.vec.try_reserve_amortized(additional)
     }
 
-    #[cfg(not(no_global_oom_handling))]
-    pub fn reserve(&mut self, additional: usize) {
-        self.vec.reserve_amortized(additional)
-    }
-
-    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), ReserveError> {
+    #[inline]
+    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
         self.vec.try_reserve_exact(additional)
     }
 
-    pub fn reserve_exact(&mut self, additional: usize) {
-        self.vec.reserve_exact(additional)
+    #[inline]
+    pub fn try_push_str(&mut self, s: &str) -> Result<(), AllocError> {
+        self.vec.try_extend_from_slice_copy(s.as_bytes())
     }
 
     #[inline]
-    pub fn try_with_capacity_in(capacity: usize, alloc: A) -> Result<Self, ReserveError> {
-        let vec = Vec::try_with_capacity_in(capacity, alloc)?;
-        Ok(Self { vec })
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        unwrap_reserve_result(Self::try_with_capacity_in(capacity, alloc))
-    }
-
-    #[inline]
-    pub fn try_push_str(&mut self, s: &str) -> Result<(), ReserveError> {
-        self.vec.try_extend_from_slice(s.as_bytes())
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn push_str(&mut self, s: &str) {
-        unwrap_reserve_result(self.try_push_str(s))
-    }
-
-    #[inline]
-    pub fn try_push(&mut self, ch: char) -> Result<(), ReserveError> {
+    pub fn try_push_char(&mut self, c: char) -> Result<(), AllocError> {
         let len = self.len();
-        let ch_len = ch.len_utf8();
+        let char_len = c.len_utf8();
         // TODO(blukai): would it make more sense to reserve_exact?
-        self.try_reserve(ch_len)?;
+        self.try_reserve_amortized(char_len)?;
         // SAFETY: just reserved capacity for at least the length needed to encode `ch`.
         unsafe {
-            ch.encode_utf8(mem::transmute(self.vec.spare_capacity_mut()));
-            self.vec.set_len(len + ch_len);
+            c.encode_utf8(mem::transmute(self.vec.spare_cap_mut()));
+            self.vec.set_len(len + char_len);
         }
         Ok(())
     }
 
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn push(&mut self, ch: char) {
-        unwrap_reserve_result(self.try_push(ch))
-    }
-
     #[inline]
     pub fn pop(&mut self) -> Option<char> {
-        let ch = self.chars().rev().next()?;
-        let new_len = self.len() - ch.len_utf8();
+        let c = self.chars().rev().next()?;
+        let new_len = self.len() - c.len_utf8();
         unsafe { self.vec.set_len(new_len) };
-        Some(ch)
+        Some(c)
     }
 
     /// Shortens this `String` to the specified length.
@@ -300,43 +262,34 @@ impl<A: Allocator> String<A> {
         self.vec.clear()
     }
 
+    // ----
+    // construct from
+
     #[inline]
-    pub fn from_utf8(vec: Vec<u8, A>) -> Result<Self, FromUtf8Error<A>> {
+    pub const unsafe fn from_utf8_unchecked(vec: Vector<u8, M>) -> Self {
+        Self { vec }
+    }
+
+    #[inline]
+    pub fn try_from_utf8(vec: Vector<u8, M>) -> Result<Self, FromUtf8Error<M>> {
         match core::str::from_utf8(&vec) {
-            Ok(_) => Ok(Self { vec }),
+            Ok(_) => Ok(unsafe { Self::from_utf8_unchecked(vec) }),
             Err(error) => Err(FromUtf8Error { bytes: vec, error }),
         }
     }
 
     #[inline]
-    pub const unsafe fn from_utf8_unchecked(vec: Vec<u8, A>) -> Self {
-        Self { vec }
-    }
-
-    #[inline]
-    pub fn try_from_str_in(s: &str, alloc: A) -> Result<Self, ReserveError> {
-        let mut this = Self::new_in(alloc);
+    pub fn try_from_str_in(s: &str, mem: M) -> Result<Self, AllocError> {
+        let mut this = Self::new_in(mem);
         this.try_push_str(s)?;
         Ok(this)
     }
 
-    #[cfg(not(no_global_oom_handling))]
     #[inline]
-    pub fn from_str_in(s: &str, alloc: A) -> Self {
-        unwrap_reserve_result(Self::try_from_str_in(s, alloc))
-    }
-
-    #[inline]
-    pub fn try_from_char_in(ch: char, alloc: A) -> Result<Self, ReserveError> {
-        let mut this = Self::new_in(alloc);
-        this.try_push(ch)?;
+    pub fn try_from_char_in(c: char, mem: M) -> Result<Self, AllocError> {
+        let mut this = Self::new_in(mem);
+        this.try_push_char(c)?;
         Ok(this)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn from_char_in(ch: char, alloc: A) -> Self {
-        unwrap_reserve_result(Self::try_from_char_in(ch, alloc))
     }
 
     /// format in two passes; no overallocation.
@@ -345,18 +298,15 @@ impl<A: Allocator> String<A> {
     ///   - second pass will reserve exact amount of memory and perform the actual write.
     ///
     ///   [`fmt::Arguments`] has no facilities for determining size needed to fit everything.
-    pub fn try_from_format_args_in(
-        args: fmt::Arguments<'_>,
-        alloc: A,
-    ) -> Result<Self, FromFmtError> {
+    pub fn try_from_format_args_in(args: fmt::Arguments<'_>, mem: M) -> Result<Self, FromFmtError> {
         // NOTE: first we'll compute size of the buffer.
         let size = {
             let mut f = RawFormatter::empty();
             f.write_fmt(args).map_err(FromFmtError::Fmt)?;
             f.written()
         };
-        let mut buf = Vec::empty_in(alloc);
-        buf.try_reserve_exact(size).map_err(FromFmtError::Reserve)?;
+        let mut buf = Vector::new_in(mem);
+        buf.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
 
         let mut f = Formatter::from_raw_parts(buf.as_mut_ptr(), size);
         f.write_fmt(args).map_err(FromFmtError::Fmt)?;
@@ -368,114 +318,57 @@ impl<A: Allocator> String<A> {
         // SAFETY: formatter replaced everything that is non valid utf8 with replacement char.
         Ok(unsafe { Self::from_utf8_unchecked(buf) })
     }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn from_format_args_in(args: fmt::Arguments<'_>, alloc: A) -> Self {
-        match Self::try_from_format_args_in(args, alloc) {
-            Ok(this) => this,
-            Err(FromFmtError::Reserve(err)) => handle_reserve_error(err),
-            Err(FromFmtError::Fmt(err)) => panic!("could not format: {err}"),
-        }
-    }
 }
 
-// global alloc
-impl String<Global> {
-    #[inline]
-    pub const fn new() -> Self {
-        Self::new_in(Global)
-    }
-
-    #[inline]
-    pub fn try_with_capacity(capacity: usize) -> Result<Self, ReserveError> {
-        Self::try_with_capacity_in(capacity, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_capacity_in(capacity, Global)
-    }
-
-    pub fn try_from_format_args(args: fmt::Arguments) -> Result<Self, FromFmtError> {
-        Self::try_from_format_args_in(args, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn from_format_args(args: fmt::Arguments<'_>) -> Self {
-        Self::from_format_args_in(args, Global)
-    }
-
-    #[inline]
-    pub fn try_from_str(s: &str) -> Result<Self, ReserveError> {
-        Self::try_from_str_in(s, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn from_str(s: &str) -> Self {
-        Self::from_str_in(s, Global)
-    }
-
-    #[inline]
-    pub fn try_from_char(ch: char) -> Result<Self, ReserveError> {
-        Self::try_from_char_in(ch, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn from_char(ch: char) -> Self {
-        Self::from_char_in(ch, Global)
-    }
-}
-
-impl Default for String<Global> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<A: Allocator> ops::Deref for String<A> {
+impl<M: Memory<u8>> ops::Deref for String<M> {
     type Target = str;
 
     #[inline]
     fn deref(&self) -> &str {
-        self.as_str()
+        // SAFETY: contents are stipulated to be valid utf-8, invalid contents are an error at
+        // construction.
+        unsafe { str::from_utf8_unchecked(&self.vec) }
     }
 }
 
-impl<A: Allocator> ops::DerefMut for String<A> {
+impl<M: Memory<u8>> ops::DerefMut for String<M> {
     #[inline]
     fn deref_mut(&mut self) -> &mut str {
-        self.as_mut_str()
+        // SAFETY: contents are stipulated to be valid UTF-8, invalid contents are an error at
+        // construction.
+        unsafe { str::from_utf8_unchecked_mut(&mut self.vec) }
     }
 }
 
-impl<A: Allocator> AsRef<str> for String<A> {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        self
+impl<M: Memory<u8> + Default> Default for String<M> {
+    fn default() -> Self {
+        Self::new_in(M::default())
     }
 }
 
-impl<A: Allocator> AsRef<[u8]> for String<A> {
+impl<M: Memory<u8>> fmt::Debug for String<M> {
     #[inline]
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<A: Allocator> AsRef<std::ffi::OsStr> for String<A> {
+impl<M: Memory<u8>> fmt::Display for String<M> {
     #[inline]
-    fn as_ref(&self) -> &std::ffi::OsStr {
-        (&**self).as_ref()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<A: Allocator> AsRef<std::path::Path> for String<A> {
+impl<M: Memory<u8>> fmt::Write for String<M> {
     #[inline]
-    fn as_ref(&self) -> &std::path::Path {
-        std::path::Path::new(self)
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.try_push_str(s).map_err(|_| fmt::Error)
+    }
+
+    #[inline]
+    fn write_char(&mut self, c: char) -> std::fmt::Result {
+        self.try_push_char(c).map_err(|_| fmt::Error)
     }
 }
 
@@ -494,62 +387,140 @@ macro_rules! impl_partial_eq {
     }
 }
 
-impl_partial_eq! { [A1: Allocator, A2: Allocator] String<A1>, String<A2> }
-impl_partial_eq! { [A: Allocator] String<A>, &str }
-impl_partial_eq! { [A: Allocator] String<A>, std::string::String }
-impl_partial_eq! { [A: Allocator] &str, String<A> }
-impl_partial_eq! { [A: Allocator] std::string::String, String<A> }
+impl_partial_eq! { [M1: Memory<u8>, M2: Memory<u8>] String<M1>, String<M2> }
 
-impl<A: Allocator> fmt::Debug for String<A> {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
+impl_partial_eq! { [M: Memory<u8>] String<M>, &str }
+impl_partial_eq! { [M: Memory<u8>] String<M>, std::string::String }
+
+impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
+impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
+
+#[cfg(not(no_global_oom_handling))]
+mod oom_string {
+    use crate::{eek, this_is_fine};
+
+    use super::*;
+
+    impl<M: Memory<u8>> String<M> {
+        #[inline]
+        pub fn reserve_exact(&mut self, additional: usize) {
+            this_is_fine(self.try_reserve_exact(additional))
+        }
+
+        #[inline]
+        pub fn reserve_amortized(&mut self, additional: usize) {
+            this_is_fine(self.try_reserve_amortized(additional))
+        }
+
+        #[inline]
+        pub fn push_str(&mut self, s: &str) {
+            this_is_fine(self.try_push_str(s))
+        }
+
+        #[inline]
+        pub fn push_char(&mut self, c: char) {
+            this_is_fine(self.try_push_char(c))
+        }
+        // ----
+        // construct from
+
+        #[inline]
+        pub fn from_str_in(s: &str, mem: M) -> Self {
+            this_is_fine(Self::try_from_str_in(s, mem))
+        }
+
+        #[inline]
+        pub fn from_char_in(c: char, mem: M) -> Self {
+            this_is_fine(Self::try_from_char_in(c, mem))
+        }
+
+        pub fn from_format_args_in(args: fmt::Arguments<'_>, mem: M) -> Self {
+            match Self::try_from_format_args_in(args, mem) {
+                Ok(ok) => ok,
+                Err(FromFmtError::Alloc(err)) => eek(err),
+                Err(FromFmtError::Fmt(err)) => panic!("could not format: {err}"),
+            }
+        }
     }
 }
 
-impl<A: Allocator> fmt::Display for String<A> {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
+#[expect(type_alias_bounds)]
+pub type GrowableString<A: Allocator> = String<GrowableMemory<u8, A>>;
+
+pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
+
+#[expect(type_alias_bounds)]
+pub type FixedGrowableString<const N: usize, A: Allocator> = String<FixedGrowableMemory<u8, N, A>>;
+
+#[cfg(test)]
+mod tests {
+    use crate::memory::GrowableMemory;
+
+    use super::*;
+
+    #[test]
+    fn test_from_format_args() {
+        let mut temp_data = [0; 1000];
+        let temp = alloc::TempAllocator::new(&mut temp_data);
+
+        let expected = std::format!("hello, {who}! {:.4}", 42.69, who = "sailor");
+        let actual = String::from_format_args_in(
+            format_args!("hello, {who}! {:.4}", 42.69, who = "sailor"),
+            GrowableMemory::new_in(&temp),
+        );
+        assert_eq!(expected, actual);
     }
-}
 
-impl<A: Allocator> fmt::Write for String<A> {
-    #[inline]
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.try_push_str(s).map_err(|_| fmt::Error)
+    // ----
+    // NOTE: tests that start with test_std_ are stolen from std.
+
+    #[test]
+    fn test_std_push_str() {
+        let mut s = String::new_in(GrowableMemory::new_in(Global));
+        s.push_str("");
+        assert_eq!(&s[0..], "");
+        s.push_str("abc");
+        assert_eq!(&s[0..], "abc");
+        s.push_str("ประเทศไทย中华Việt Nam");
+        assert_eq!(&s[0..], "abcประเทศไทย中华Việt Nam");
     }
 
-    #[inline]
-    fn write_char(&mut self, c: char) -> std::fmt::Result {
-        self.try_push(c).map_err(|_| fmt::Error)
+    #[test]
+    fn test_std_push() {
+        let mut data = String::from_str_in("ประเทศไทย中", GrowableMemory::new_in(Global));
+        data.push_char('华');
+        data.push_char('b'); // 1 byte
+        data.push_char('¢'); // 2 byte
+        data.push_char('€'); // 3 byte
+        data.push_char('𤭢'); // 4 byte
+        assert_eq!(data, "ประเทศไทย中华b¢€𤭢");
     }
-}
 
-// TODO(blukai): i don't like str::format export, i want it to be str::string::format.
-//   but rust can't do that, great.
-#[macro_export]
-macro_rules! format {
-    (try in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::String::try_from_format_args_in(format_args!($($arg)*), $alloc)
-    };
-    (try, $($arg:tt)*) => {
-        $crate::string::String::try_from_format_args(format_args!($($arg)*))
-    };
-    (in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::String::from_format_args_in(format_args!($($arg)*), $alloc)
-    };
-    ($($arg:tt)*) => {
-        $crate::string::String::from_format_args(format_args!($($arg)*))
-    };
-}
+    #[test]
+    fn test_std_pop() {
+        let mut data = String::from_str_in("ประเทศไทย中华b¢€𤭢", GrowableMemory::new_in(Global));
+        assert_eq!(data.pop(), Some('𤭢')); // 4 bytes
+        assert_eq!(data.pop(), Some('€')); // 3 bytes
+        assert_eq!(data.pop(), Some('¢')); // 2 bytes
+        assert_eq!(data.pop(), Some('b')); // 1 bytes
+        assert_eq!(data.pop(), Some('华'));
+        assert_eq!(data, "ประเทศไทย中");
+    }
 
-#[test]
-fn test_format_macro() {
-    let mut temp_data = [0; 1000];
-    let temp = alloc::TempAllocator::new(&mut temp_data);
+    #[test]
+    fn test_std_clear() {
+        let mut s = String::from_str_in("12345", GrowableMemory::new_in(Global));
+        s.clear();
+        assert_eq!(s.len(), 0);
+        assert_eq!(s, "");
+    }
 
-    let expected = std::format!("hello, {who}! {:.4}", 42.69, who = "sailor");
-    let actual = format!(try in &temp, "hello, {who}! {:.4}", 42.69, who = "sailor").unwrap();
-    assert_eq!(expected, actual);
+    #[test]
+    fn test_std_slicing() {
+        let s = String::from_str_in("foobar", GrowableMemory::new_in(Global));
+        assert_eq!("foobar", &s[..]);
+        assert_eq!("foo", &s[..3]);
+        assert_eq!("bar", &s[3..]);
+        assert_eq!("oob", &s[1..4]);
+    }
 }
