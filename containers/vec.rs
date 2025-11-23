@@ -1,41 +1,44 @@
+use core::error::Error;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
 use core::slice::{self, SliceIndex};
-use core::{fmt, iter, ops};
+use core::{fmt, ops};
 use std::io;
 
-use alloc::{Allocator, Global, Layout};
+use alloc::{AllocError, Allocator, Global, Layout};
 use scopeguard::ScopeGuard;
 
-#[cfg(not(no_global_oom_handling))]
-use crate::unwrap_reserve_result;
-use crate::{ReserveError, try_range_from_bounds};
+use crate::try_range_from_bounds;
 
-// NOTE: this is copypasted from std.
-//
-// Tiny Vecs are dumb. Skip to:
-// - 8 if the item size is 1, because any heap allocator is likely
-//   to round up a request of less than 8 bytes to at least 8 bytes.
-// - 4 if items are moderate-sized (<= 1 KiB).
-// - 1 otherwise, to avoid wasting too much space for very short Vecs.
-const fn min_non_zero_cap(size: usize) -> usize {
-    if size == 1 {
-        8
-    } else if size <= 1024 {
-        4
-    } else {
-        1
+pub struct PushError<T> {
+    pub error: AllocError,
+    pub value: T,
+}
+
+impl<T> Error for PushError<T> {}
+
+impl<T> fmt::Debug for PushError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.error, f)
+    }
+}
+
+impl<T> fmt::Display for PushError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.error, f)
     }
 }
 
 /// a simpler version, a subset of [`std::vec::Vec`] that works with [`Allocator`] trait.
 /// api attempts to be (but not always is) compatible with [`std::vec::Vec`].
-pub struct Vec<T, A: Allocator = Global> {
+pub struct Vec<T, A: Allocator> {
     ptr: NonNull<T>,
     cap: usize,
     len: usize,
     alloc: A,
 }
+
+const _: () = assert!(size_of::<Vec<(), Global>>() <= size_of::<std::vec::Vec<()>>());
 
 impl<T, A: Allocator> Vec<T, A> {
     #[inline]
@@ -55,7 +58,7 @@ impl<T, A: Allocator> Vec<T, A> {
 
     /// will always return `usize::MAX` if `T` is zero-sized.
     #[inline]
-    pub const fn capacity(&self) -> usize {
+    pub const fn cap(&self) -> usize {
         if Self::is_zst() { usize::MAX } else { self.cap }
     }
 
@@ -64,26 +67,11 @@ impl<T, A: Allocator> Vec<T, A> {
         self.len
     }
 
-    #[inline]
-    const fn remaining_capacity(&self) -> usize {
-        self.capacity() - self.len()
-    }
-
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    #[inline]
-    const fn is_full(&self) -> bool {
-        self.capacity() == self.len()
-    }
-
     /// SAFETY: new_len must be less than or equal to capacity.
     /// the items at old_len..new_len must be initialized.
     #[inline]
     pub unsafe fn set_len(&mut self, new_len: usize) {
-        debug_assert!(new_len <= self.capacity());
+        debug_assert!(new_len <= self.cap());
         self.len = new_len;
     }
 
@@ -97,6 +85,10 @@ impl<T, A: Allocator> Vec<T, A> {
         self.ptr.as_ptr()
     }
 
+    // NOTE(blukai): as_slice and as_mut_slice methods exist because ops::Deref cannot be used in
+    // const-contexts.
+    //   maybe once const_trait_impl is stabilized these can be removed?
+
     #[inline]
     pub const fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
@@ -109,21 +101,20 @@ impl<T, A: Allocator> Vec<T, A> {
 
     /// SAFETY: `new_cap` must be greater then the current capacity.
     #[inline]
-    unsafe fn grow(&mut self, new_cap: usize) -> Result<(), ReserveError> {
-        let old_cap = self.capacity();
+    unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError> {
+        let old_cap = self.cap();
 
-        // NOTE: this is ensured by the caller.
+        // NOTE: this must be ensured by the caller.
         debug_assert!(new_cap > old_cap);
 
-        let new_layout = Layout::array::<T>(new_cap).map_err(|_| ReserveError::CapacityOverflow)?;
+        let new_layout = Layout::array::<T>(new_cap).map_err(|_| AllocError)?;
         let new_ptr = if new_cap > 0 {
             let old_layout = unsafe { Layout::array::<T>(old_cap).unwrap_unchecked() };
             debug_assert_eq!(old_layout.align(), new_layout.align());
             unsafe { self.alloc.grow(self.ptr.cast(), old_layout, new_layout) }
         } else {
             self.alloc.allocate(new_layout)
-        }
-        .map_err(|_| ReserveError::AllocError { layout: new_layout })?
+        }?
         .cast();
 
         self.ptr = new_ptr;
@@ -132,23 +123,43 @@ impl<T, A: Allocator> Vec<T, A> {
         Ok(())
     }
 
-    /// ensures that the capacity exceeds the length by at least `additional` items.
-    ///
-    /// # example
-    ///
-    /// ```
-    /// # use containers::vec::Vec;
-    /// # use containers::ReserveError;
-    ///
-    /// let mut v = Vec::new();
-    /// v.try_push(1)?;
-    /// v.try_reserve(10)?;
-    /// assert!(v.capacity() >= 11);
-    ///
-    /// # Ok::<(), ReserveError>(())
-    /// ```
-    pub fn try_reserve(&mut self, additional: usize) -> Result<(), ReserveError> {
-        let cap = self.capacity();
+    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
+        let cap = self.cap();
+        let len = self.len();
+
+        if cap - len >= additional {
+            return Ok(());
+        }
+
+        if Self::is_zst() {
+            return Err(AllocError);
+        }
+
+        let required_cap = len.checked_add(additional).ok_or(AllocError)?;
+
+        // SAFETY: we ensured above that new cap would be greater then current.
+        unsafe { self.grow(required_cap) }
+    }
+
+    pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
+        // NOTE: this is copypasted from std.
+        //
+        // Tiny Vecs are dumb. Skip to:
+        // - 8 if the item size is 1, because any heap allocator is likely
+        //   to round up a request of less than 8 bytes to at least 8 bytes.
+        // - 4 if items are moderate-sized (<= 1 KiB).
+        // - 1 otherwise, to avoid wasting too much space for very short Vecs.
+        const fn min_non_zero_cap(size: usize) -> usize {
+            if size == 1 {
+                8
+            } else if size <= 1024 {
+                4
+            } else {
+                1
+            }
+        }
+
+        let cap = self.cap();
         let len = self.len();
 
         if cap - len >= additional {
@@ -157,112 +168,69 @@ impl<T, A: Allocator> Vec<T, A> {
 
         if Self::is_zst() {
             // NOTE: the capacity is already `usize::MAX` for zsts.
-            return Err(ReserveError::CapacityOverflow);
+            return Err(AllocError);
         }
 
-        let required_cap = len
-            .checked_add(additional)
-            .ok_or(ReserveError::CapacityOverflow)?;
-
+        let required_cap = len.checked_add(additional).ok_or(AllocError)?;
         let amortized_cap = required_cap
             // NOTE: the doubling cannot overflow because `cap <= isize::MAX`.
             //   `Layout::array` upholds this.
             .max(cap * 2)
             .max(min_non_zero_cap(size_of::<T>()));
 
-        // SAFETY: we ensured aboce that `new_cap` must be greater then the current capacity.
+        // SAFETY: we ensured above that new cap would be greater then current.
         unsafe { self.grow(amortized_cap) }
     }
 
-    #[cfg(not(no_global_oom_handling))]
     #[inline]
-    pub fn reserve(&mut self, additional: usize) {
-        unwrap_reserve_result(self.try_reserve(additional))
-    }
-
-    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), ReserveError> {
-        let cap = self.capacity();
-        let len = self.len();
-
-        if cap - len >= additional {
-            return Ok(());
-        }
-
-        if Self::is_zst() {
-            return Err(ReserveError::CapacityOverflow);
-        }
-
-        let required_cap = len
-            .checked_add(additional)
-            .ok_or(ReserveError::CapacityOverflow)?;
-
-        // SAFETY: we ensured aboce that `new_cap` must be greater then the current capacity.
-        unsafe { self.grow(required_cap) }
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn reserve_exact(&mut self, additional: usize) {
-        unwrap_reserve_result(self.try_reserve_exact(additional))
-    }
-
-    #[inline]
-    pub fn try_with_capacity_in(cap: usize, alloc: A) -> Result<Self, ReserveError> {
+    pub fn try_new_with_cap_in(cap: usize, alloc: A) -> Result<Self, AllocError> {
         let mut this = Self::new_in(alloc);
         this.try_reserve_exact(cap)?;
         Ok(this)
     }
 
-    #[cfg(not(no_global_oom_handling))]
     #[inline]
-    pub fn with_capacity_in(cap: usize, alloc: A) -> Self {
-        unwrap_reserve_result(Self::try_with_capacity_in(cap, alloc))
-    }
-
-    #[inline]
-    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        // SAFETY: the memory between `self.len` and `self.capacity` is guaranteed to be allocated
+    pub fn spare_cap_mut(&mut self) -> &mut [MaybeUninit<T>] {
+        let len = self.len();
+        // SAFETY: the memory between `self.len` and `self.cap` is guaranteed to be allocated
         // and valid, but uninitialized.
         unsafe {
-            let ptr = self.as_mut_ptr().add(self.len()).cast::<MaybeUninit<T>>();
-            slice::from_raw_parts_mut(ptr, self.remaining_capacity())
+            let ptr = self.as_mut_ptr().add(len).cast::<MaybeUninit<T>>();
+            slice::from_raw_parts_mut(ptr, self.cap() - len)
         }
     }
 
     /// SAFETY: the length must be less than the capacity.
     #[inline]
-    unsafe fn push_within_capacity_unchecked(&mut self, value: T) {
-        let spare = self.spare_capacity_mut();
+    pub unsafe fn push_within_cap_unchecked(&mut self, value: T) {
+        let spare = self.spare_cap_mut();
         // SAFETY: by the safety requirements, `spare` is non-empty.
-        unsafe { spare.get_unchecked_mut(0) }.write(value);
+        unsafe { spare.get_unchecked_mut(0).write(value) };
         self.len += 1;
     }
 
     #[inline]
-    pub fn push_within_capacity(&mut self, value: T) -> Result<(), T> {
-        if self.is_full() {
-            return Err(value);
+    pub fn push_within_cap(&mut self, value: T) -> Option<T> {
+        if self.cap() == self.len() {
+            return Some(value);
         }
-        unsafe { self.push_within_capacity_unchecked(value) };
-        Ok(())
+        unsafe { self.push_within_cap_unchecked(value) };
+        None
     }
 
     // TODO: should there be a custom error for push?
     //   that will contain value so that the caller can get it back?
     #[inline]
-    pub fn try_push(&mut self, value: T) -> Result<(), ReserveError> {
-        self.try_reserve(1)?;
-        unsafe { self.push_within_capacity_unchecked(value) };
+    pub fn try_push(&mut self, value: T) -> Result<(), PushError<T>> {
+        if let Err(error) = self.try_reserve_amortized(1) {
+            return Err(PushError { error, value });
+        }
+        unsafe { self.push_within_cap_unchecked(value) };
         Ok(())
     }
 
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn push(&mut self, value: T) {
-        unwrap_reserve_result(self.try_push(value))
-    }
-
     /// removes the last item and returns it, or `None` if it is empty.
+    #[inline]
     pub fn pop(&mut self) -> Option<T> {
         if self.is_empty() {
             return None;
@@ -293,175 +261,6 @@ impl<T, A: Allocator> Vec<T, A> {
         debug_assert!(self.is_empty());
     }
 
-    pub fn try_extend_from_iter<I: Iterator<Item = T>>(
-        &mut self,
-        mut iter: I,
-    ) -> Result<(), ReserveError> {
-        while let Some(it) = iter.next() {
-            let cap = self.capacity();
-            let len = self.len();
-            if cap == len {
-                let (lower, _) = iter.size_hint();
-                self.try_reserve(lower.saturating_add(1))?;
-            }
-            unsafe {
-                self.push_within_capacity_unchecked(it);
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) {
-        unwrap_reserve_result(self.try_extend_from_iter(iter))
-    }
-
-    // TODO: consider introducing a distinct try_extend_from_slice for T: Copy.
-    //   need either specialization feature or split methods:
-    //   - try_extend_clone_from_slice
-    //   - try_extend_copy_from_slice
-    //   or something
-    pub fn try_extend_from_slice(&mut self, other: &[T]) -> Result<(), ReserveError>
-    where
-        T: Clone,
-    {
-        self.try_extend_from_iter(other.iter().cloned())
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn extend_from_slice(&mut self, other: &[T])
-    where
-        T: Clone,
-    {
-        unwrap_reserve_result(self.try_extend_from_slice(other))
-    }
-
-    pub fn try_from_iter_in<I: Iterator<Item = T>>(
-        iter: I,
-        alloc: A,
-    ) -> Result<Self, ReserveError> {
-        let mut this = Self::new_in(alloc);
-        this.try_extend_from_iter(iter)?;
-        Ok(this)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn from_iter_in<I: Iterator<Item = T>>(iter: I, alloc: A) -> Self {
-        unwrap_reserve_result(Self::try_from_iter_in(iter, alloc))
-    }
-
-    // TODO: consider introducing a distinct try_extend_from_slice for T: Copy.
-    //   need either specialization feature or split methods:
-    //   - try_from_slice_copy
-    //   - try_from_slice_clone
-    //   or something
-    pub fn try_from_slice_in(slice: &[T], alloc: A) -> Result<Self, ReserveError>
-    where
-        T: Clone,
-    {
-        let mut this = Self::new_in(alloc);
-        this.try_extend_from_slice(slice)?;
-        Ok(this)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn from_slice_in(slice: &[T], alloc: A) -> Self
-    where
-        T: Clone,
-    {
-        unwrap_reserve_result(Self::try_from_slice_in(slice, alloc))
-    }
-
-    pub fn try_from_array_in<const N: usize>(
-        array: [T; N],
-        alloc: A,
-    ) -> Result<Self, ReserveError> {
-        // NOTE: this is somewhat of an untangled version of what std does
-        //   but not quite; although technically mostly yes...
-        //
-        //   std puts array into Box first, deconstructs it into raw ptr and alloc, and then
-        //   constructs Vec from raw parts.
-        //
-        //   std's Box::new method is relying on not-publicly-available lang exchange malloc
-        //   intrinsic that supposedly can put array onto the heap right away omitting stack.
-        //   we can't do exactly copy that.
-        let mut this = Self::new_in(alloc);
-        this.try_reserve_exact(array.len())?;
-        unsafe { this.as_mut_ptr().cast::<[T; N]>().write(array) };
-        this.len = N;
-        Ok(this)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn from_array_in<const N: usize>(array: [T; N], alloc: A) -> Self {
-        unwrap_reserve_result(Self::try_from_array_in(array, alloc))
-    }
-
-    /// create with `n` clones of `value`.
-    pub fn try_from_item_in(value: T, n: usize, alloc: A) -> Result<Self, ReserveError>
-    where
-        T: Clone,
-    {
-        Self::try_from_iter_in(iter::repeat_n(value, n), alloc)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn from_item_in(value: T, n: usize, alloc: A) -> Self
-    where
-        T: Clone,
-    {
-        unwrap_reserve_result(Self::try_from_item_in(value, n, alloc))
-    }
-
-    /// resizes the [`Vec`] so that `len` is equal to `new_len`.
-    ///
-    /// if `new_len` is smaller than `len`, the `Vec` is [`Vec::truncate`]d.
-    /// if `new_len` is larger, each new slot is filled with clones of `value`.
-    pub fn try_resize(&mut self, new_len: usize, value: T) -> Result<(), ReserveError>
-    where
-        T: Clone,
-    {
-        let Some(n) = new_len.checked_sub(self.len()) else {
-            self.truncate(new_len);
-            return Ok(());
-        };
-        self.try_extend_from_iter(iter::repeat_n(value, n))
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn resize(&mut self, new_len: usize, value: T)
-    where
-        T: Clone,
-    {
-        unwrap_reserve_result(self.try_resize(new_len, value))
-    }
-
-    /// resizes the [`Vec`] so that `len` is equal to `new_len`.
-    ///
-    /// if `new_len` is smaller than `len`, the `Vec` is [`Vec::truncate`]d.
-    /// if `new_len` is larger, each new slot is filled with clones of `value`.
-    ///
-    /// if you'd rather [`Clone`] a given value, use [`Vec::try_resize`]/[`Vec::resize`]. if you want to use the
-    /// [`Default`] trait to generate values, you can pass [`Default::default`].
-    pub fn try_resize_with<F>(&mut self, new_len: usize, f: F) -> Result<(), ReserveError>
-    where
-        F: FnMut() -> T,
-    {
-        let Some(n) = new_len.checked_sub(self.len()) else {
-            self.truncate(new_len);
-            return Ok(());
-        };
-        self.try_extend_from_iter(iter::repeat_with(f).take(n))
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    pub fn resize_with<F>(&mut self, new_len: usize, f: F)
-    where
-        F: FnMut() -> T,
-    {
-        unwrap_reserve_result(self.try_resize_with(new_len, f))
-    }
-
     /// takes ownership of the subslice indicated by the given range without consuming the
     /// allocation.
     ///
@@ -482,7 +281,6 @@ impl<T, A: Allocator> Vec<T, A> {
         let len = self.len();
         // TODO(blukai): maybe non-paniching variant of drain (try_drain?).
         let ops::Range { start, end } = try_range_from_bounds(range, ..len).expect("invalid range");
-
         // NOTE: when Drain drops the remaining tail of the vec is copied back to cover the hole.
         unsafe {
             // NOTE: set len to start, to be safe in case Drain's leakage.
@@ -497,94 +295,83 @@ impl<T, A: Allocator> Vec<T, A> {
             }
         }
     }
-}
 
-impl<T> Vec<T> {
-    #[inline]
-    pub const fn new() -> Self {
-        Self::new_in(Global)
+    // ----
+    // extend from
+
+    pub fn try_extend_from_iter<I: Iterator<Item = T>>(
+        &mut self,
+        mut iter: I,
+    ) -> Result<(), AllocError> {
+        while let Some(it) = iter.next() {
+            if self.cap() == self.len() {
+                let (lower, _) = iter.size_hint();
+                self.try_reserve_amortized(lower.saturating_add(1))?;
+            }
+            unsafe { self.push_within_cap_unchecked(it) };
+        }
+        Ok(())
     }
 
-    #[inline]
-    pub fn try_with_capacity(cap: usize) -> Result<Self, ReserveError> {
-        Self::try_with_capacity_in(cap, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
-        Self::with_capacity_in(cap, Global)
-    }
-
-    // NOTE: faillable variant `from_iter` is implemented by `FromIterator` trait.
-    #[inline]
-    pub fn try_from_iter<I: Iterator<Item = T>>(iter: I) -> Result<Self, ReserveError> {
-        Self::try_from_iter_in(iter, Global)
-    }
-
-    // NOTE: from_iter is implemented by the FromIterator trait.
-    // pub fn from_iter<I: Iterator<Item = T>>(iter: I) -> Self { ... }
-
-    /// creates a new with `n` clones of `value`.
-    #[inline]
-    pub fn try_from_item(value: T, n: usize) -> Result<Self, ReserveError>
+    /// use [`Self::try_extend_from_iter`] for items that cannot be copied.
+    pub fn try_extend_from_slice_copy(&mut self, other: &[T]) -> Result<(), AllocError>
     where
-        T: Clone,
+        T: Copy,
     {
-        Self::try_from_item_in(value, n, Global)
+        let count = other.len();
+        self.try_reserve_amortized(count)?;
+        unsafe {
+            self.as_mut_ptr()
+                .add(self.len())
+                .copy_from_nonoverlapping(other.as_ptr(), count)
+        };
+        self.len += count;
+        Ok(())
     }
 
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn from_item(value: T, n: usize) -> Self
+    // ----
+    // construct from
+
+    pub fn try_from_iter_in<I: Iterator<Item = T>>(iter: I, alloc: A) -> Result<Self, AllocError> {
+        let mut this = Self::new_in(alloc);
+        this.try_extend_from_iter(iter)?;
+        Ok(this)
+    }
+
+    /// use [`Self::try_from_iter_in`] for items that cannot be copied.
+    pub fn try_from_slice_copy_in(slice: &[T], alloc: A) -> Result<Self, AllocError>
     where
-        T: Clone,
+        T: Copy,
     {
-        Self::from_item_in(value, n, Global)
+        let mut this = Self::new_in(alloc);
+        this.try_extend_from_slice_copy(slice)?;
+        Ok(this)
     }
 
-    #[inline]
-    pub fn try_from_array<const N: usize>(array: [T; N]) -> Result<Self, ReserveError> {
-        Self::try_from_array_in(array, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn from_array<const N: usize>(array: [T; N]) -> Self {
-        Self::from_array_in(array, Global)
-    }
-
-    #[inline]
-    pub fn try_from_slice(slice: &[T]) -> Result<Self, ReserveError>
-    where
-        T: Clone,
-    {
-        Self::try_from_slice_in(slice, Global)
-    }
-
-    #[cfg(not(no_global_oom_handling))]
-    #[inline]
-    pub fn from_slice(slice: &[T]) -> Self
-    where
-        T: Clone,
-    {
-        Self::from_slice_in(slice, Global)
+    pub fn try_from_array_in<const N: usize>(array: [T; N], alloc: A) -> Result<Self, AllocError> {
+        // NOTE: this is somewhat of an untangled version of what std does
+        //   but not quite; although technically mostly yes...
+        //
+        //   std puts array into Box first, deconstructs it into raw ptr and alloc, and then
+        //   constructs Vec from raw parts.
+        //
+        //   std's Box::new method is relying on not-publicly-available lang exchange malloc
+        //   intrinsic that supposedly can put array onto the heap right away omitting stack.
+        //   we can't do exactly copy that.
+        let mut this = Self::new_in(alloc);
+        this.try_reserve_exact(array.len())?;
+        unsafe { this.as_mut_ptr().cast::<[T; N]>().write(array) };
+        this.len = N;
+        Ok(this)
     }
 }
 
 impl<T, A: Allocator> Drop for Vec<T, A> {
     fn drop(&mut self) {
         unsafe { ptr::slice_from_raw_parts_mut(self.as_mut_ptr(), self.len()).drop_in_place() };
-        let layout = unsafe { Layout::array::<T>(self.capacity()).unwrap_unchecked() };
+        let layout = unsafe { Layout::array::<T>(self.cap()).unwrap_unchecked() };
         // SAFETY: even if T is zst Allocator and ptr is dangling - alloc knows how to handle that.
         unsafe { self.alloc.deallocate(self.ptr.cast(), layout) }
-    }
-}
-
-impl<T> Default for Vec<T> {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -620,6 +407,19 @@ impl<T, A: Allocator, I: SliceIndex<[T]>> ops::IndexMut<I> for Vec<T, A> {
     }
 }
 
+impl<T: fmt::Debug, A: Allocator> fmt::Debug for Vec<T, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T, A: Allocator + Default> Default for Vec<T, A> {
+    #[inline]
+    fn default() -> Self {
+        Self::new_in(A::default())
+    }
+}
+
 macro_rules! impl_partial_eq {
     ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
         impl<T, U, $($vars)*> PartialEq<$rhs> for $lhs
@@ -629,6 +429,7 @@ macro_rules! impl_partial_eq {
         {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool { self[..] == other[..] }
+
             #[inline]
             fn ne(&self, other: &$rhs) -> bool { self[..] != other[..] }
         }
@@ -636,106 +437,44 @@ macro_rules! impl_partial_eq {
 }
 
 impl_partial_eq! { [A1: Allocator, A2: Allocator] Vec<T, A1>, Vec<U, A2> }
+
 impl_partial_eq! { [A: Allocator, const C: usize] Vec<T, A>, &[U; C] }
 impl_partial_eq! { [A: Allocator, const C: usize] Vec<T, A>, [U; C] }
 impl_partial_eq! { [A: Allocator] Vec<T, A>, &[U] }
 impl_partial_eq! { [A: Allocator] Vec<T, A>, [U] }
+impl_partial_eq! { [A: Allocator] Vec<T, A>, std::vec::Vec<U> }
+
+impl_partial_eq! { [A: Allocator, const C: usize] &[T; C], Vec<U, A> }
+impl_partial_eq! { [A: Allocator, const C: usize] [T; C], Vec<U, A> }
 impl_partial_eq! { [A: Allocator] &[T], Vec<U, A> }
 impl_partial_eq! { [A: Allocator] [T], Vec<U, A> }
-
-impl<'a, T, A: Allocator> IntoIterator for &'a Vec<T, A> {
-    type Item = &'a T;
-    type IntoIter = slice::Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, T, A: Allocator> IntoIterator for &'a mut Vec<T, A> {
-    type Item = &'a mut T;
-    type IntoIter = slice::IterMut<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
-    }
-}
-
-#[cfg(not(no_global_oom_handling))]
-impl<T, A: Allocator> Extend<T> for Vec<T, A> {
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        self.extend_from_iter(iter.into_iter());
-    }
-}
-
-#[cfg(not(no_global_oom_handling))]
-impl<'a, T: Copy + 'a, A: Allocator> Extend<&'a T> for Vec<T, A> {
-    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
-        self.extend_from_iter(iter.into_iter().copied())
-    }
-}
-
-#[cfg(not(no_global_oom_handling))]
-impl<T> FromIterator<T> for Vec<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self::from_iter_in(iter.into_iter(), Global)
-    }
-}
-
-#[cfg(not(no_global_oom_handling))]
-impl<T: Clone, A: Allocator + Clone> Clone for Vec<T, A> {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        let alloc = self.alloc.clone();
-        let mut vec = Vec::with_capacity_in(self.len(), alloc);
-        vec.extend_from_slice(self);
-        vec
-    }
-
-    #[inline(always)]
-    fn clone_from(&mut self, other: &Self) {
-        // drop anything that will not be overwritten
-        self.truncate(other.len());
-
-        // self.len <= other.len due to the truncate above, so the
-        // slices here are always in-bounds.
-        let (init, tail) = other.split_at(self.len());
-
-        // reuse the contained values' allocations/resources.
-        self.clone_from_slice(init);
-        self.extend_from_slice(tail);
-    }
-}
-
-impl<T: fmt::Debug, A: Allocator> fmt::Debug for Vec<T, A> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
-    }
-}
+impl_partial_eq! { [A: Allocator] std::vec::Vec<T>, Vec<U, A> }
 
 /// Write is implemented for `Vec<u8>` by appending to the vector.
 /// The vector will grow as needed.
 impl<A: Allocator> io::Write for Vec<u8, A> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.try_extend_from_slice(buf).map_err(io::Error::other)?;
+        self.try_extend_from_slice_copy(buf)
+            .map_err(io::Error::other)?;
         Ok(buf.len())
     }
 
     #[inline]
     fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
         let len = bufs.iter().map(|b| b.len()).sum();
-        self.try_reserve(len).map_err(io::Error::other)?;
+        self.try_reserve_amortized(len).map_err(io::Error::other)?;
         for buf in bufs {
             // NOTE: ok to ignore because reserve ^ above did succeed.
-            _ = self.try_extend_from_slice(buf);
+            _ = self.try_extend_from_slice_copy(buf);
         }
         Ok(len)
     }
 
     #[inline]
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.try_extend_from_slice(buf).map_err(io::Error::other)
+        self.try_extend_from_slice_copy(buf)
+            .map_err(io::Error::other)
     }
 
     #[inline]
@@ -744,34 +483,12 @@ impl<A: Allocator> io::Write for Vec<u8, A> {
     }
 }
 
-pub struct Drain<'v, T: 'v, A: Allocator + 'v = Global> {
+pub struct Drain<'v, T: 'v, A: Allocator + 'v> {
     iter: slice::IterMut<'v, T>,
     vec: NonNull<Vec<T, A>>,
     tail_start: usize,
     tail_len: usize,
 }
-
-impl<T, A: Allocator> Iterator for Drain<'_, T, A> {
-    type Item = T;
-
-    #[inline]
-    fn next(&mut self) -> Option<T> {
-        self.iter.next().map(|it| unsafe { ptr::read(it) })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
-
-impl<T, A: Allocator> DoubleEndedIterator for Drain<'_, T, A> {
-    #[inline]
-    fn next_back(&mut self) -> Option<T> {
-        self.iter.next_back().map(|it| unsafe { ptr::read(it) })
-    }
-}
-
-impl<T, A: Allocator> ExactSizeIterator for Drain<'_, T, A> {}
 
 impl<T, A: Allocator> Drop for Drain<'_, T, A> {
     fn drop(&mut self) {
@@ -802,59 +519,301 @@ impl<T, A: Allocator> Drop for Drain<'_, T, A> {
     }
 }
 
-#[test]
-fn test_uses_provided_allocator() {
-    let mut temp_data = [0; 1000];
-    let temp = alloc::TempAllocator::new(&mut temp_data);
+impl<T, A: Allocator> Iterator for Drain<'_, T, A> {
+    type Item = T;
 
-    let mut this: Vec<u32, _> = Vec::new_in(&temp);
-
-    this.try_reserve(42).unwrap();
-    assert_eq!(temp.get_checkpoint().occupied, 42 * size_of::<u32>());
-}
-
-#[test]
-fn test_reserve_does_not_overallocate() {
-    {
-        let mut this: Vec<u32> = Vec::new();
-        let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
-
-        this.try_reserve(9).unwrap();
-        std.reserve(9);
-        assert_eq!(this.capacity(), std.capacity());
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.iter.next().map(|it| unsafe { ptr::read(it) })
     }
 
-    {
-        let mut this: Vec<u32> = Vec::new();
-        let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
-
-        this.try_reserve(8).unwrap();
-        std.reserve(8);
-        assert_eq!(this.capacity(), std.capacity());
-
-        this.try_reserve(90).unwrap();
-        std.reserve(90);
-        assert_eq!(this.capacity(), std.capacity());
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
     }
 }
 
-#[test]
-fn test_zst_reserve_errors() {
-    #[derive(Clone, Copy)]
-    struct ZST;
+impl<T, A: Allocator> DoubleEndedIterator for Drain<'_, T, A> {
+    #[inline]
+    fn next_back(&mut self) -> Option<T> {
+        self.iter.next_back().map(|it| unsafe { ptr::read(it) })
+    }
+}
 
-    let mut this: Vec<ZST> = Vec::new();
-    let mut std: std::vec::Vec<ZST> = std::vec::Vec::new();
+impl<T, A: Allocator> ExactSizeIterator for Drain<'_, T, A> {}
 
-    this.resize(101, ZST);
-    assert!(matches!(
-        this.try_reserve(usize::MAX - 100),
-        Err(ReserveError::CapacityOverflow)
-    ));
+#[cfg(not(no_global_oom_handling))]
+mod oom {
+    use alloc::{AllocError, Allocator};
 
-    std.resize_with(101, || ZST);
-    assert!(matches!(
-        std.try_reserve(usize::MAX - 100),
-        Err(std::collections::TryReserveError { .. })
-    ));
+    use super::*;
+
+    // NOTE(blukai): alloc::handle_alloc_error wants layout arg, but it doesn't really do anything
+    // useful with it and it's annoying to jiggle it around.
+    #[cold]
+    fn eek(_err: AllocError) -> ! {
+        panic!("allocation failed");
+    }
+
+    #[inline]
+    fn this_is_fine<T>(result: Result<T, AllocError>) -> T {
+        match result {
+            Ok(ok) => ok,
+            Err(err) => eek(err),
+        }
+    }
+
+    impl<T, A: Allocator> Vec<T, A> {
+        #[inline]
+        pub fn reserve_exact(&mut self, additional: usize) {
+            this_is_fine(self.try_reserve_exact(additional))
+        }
+
+        #[inline]
+        pub fn reserve_amortized(&mut self, additional: usize) {
+            this_is_fine(self.try_reserve_amortized(additional))
+        }
+
+        #[inline]
+        pub fn new_with_cap_in(cap: usize, alloc: A) -> Self {
+            this_is_fine(Self::try_new_with_cap_in(cap, alloc))
+        }
+
+        #[inline]
+        pub fn push(&mut self, value: T) {
+            if let Err(PushError { error, .. }) = self.try_push(value) {
+                eek(error)
+            }
+        }
+
+        // ----
+        // extend from
+
+        #[inline]
+        pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) {
+            this_is_fine(self.try_extend_from_iter(iter))
+        }
+
+        #[inline]
+        pub fn extend_from_slice_copy(&mut self, other: &[T])
+        where
+            T: Copy,
+        {
+            this_is_fine(self.try_extend_from_slice_copy(other))
+        }
+
+        // ----
+        // construct from
+
+        #[inline]
+        pub fn from_iter_in<I: Iterator<Item = T>>(iter: I, alloc: A) -> Self {
+            this_is_fine(Self::try_from_iter_in(iter, alloc))
+        }
+
+        #[inline]
+        pub fn from_slice_copy_in(slice: &[T], alloc: A) -> Self
+        where
+            T: Copy,
+        {
+            this_is_fine(Self::try_from_slice_copy_in(slice, alloc))
+        }
+
+        #[inline]
+        pub fn from_array_in<const N: usize>(array: [T; N], alloc: A) -> Self {
+            this_is_fine(Self::try_from_array_in(array, alloc))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::iter;
+
+    use crate::{
+        testing::{assert_matches, struct_with_counted_drop},
+        vec::*,
+    };
+
+    #[test]
+    fn test_uses_provided_allocator() {
+        let mut temp_data = [0; 1000];
+        let temp = alloc::TempAllocator::new(&mut temp_data);
+
+        let mut this: Vec<u32, _> = Vec::new_in(&temp);
+
+        this.try_reserve_amortized(42).unwrap();
+        assert_eq!(temp.get_checkpoint().occupied, 42 * size_of::<u32>());
+    }
+
+    #[test]
+    fn test_matches_std_reserve_amortized_strategy() {
+        {
+            let mut this: Vec<u32, _> = Vec::new_in(Global);
+            let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
+
+            this.try_reserve_amortized(9).unwrap();
+            std.reserve(9);
+            assert_eq!(this.cap(), std.capacity());
+        }
+
+        {
+            let mut this: Vec<u32, _> = Vec::new_in(Global);
+            let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
+
+            this.try_reserve_amortized(8).unwrap();
+            std.reserve(8);
+            assert_eq!(this.cap(), std.capacity());
+
+            this.try_reserve_amortized(90).unwrap();
+            std.reserve(90);
+            assert_eq!(this.cap(), std.capacity());
+        }
+    }
+
+    #[test]
+    fn test_matches_std_zst_allocation_strategy() {
+        let mut temp_data = [0; 1000];
+        let temp = alloc::TempAllocator::new(&mut temp_data);
+
+        #[derive(Clone, Copy)]
+        struct ZST;
+
+        let mut this: Vec<ZST, _> = Vec::new_in(&temp);
+        let mut std: std::vec::Vec<ZST> = std::vec::Vec::new();
+
+        this.extend_from_iter(iter::repeat_n(ZST, 101));
+        assert_matches!(
+            this.try_reserve_amortized(usize::MAX - 100),
+            Err(AllocError)
+        );
+
+        std.extend(iter::repeat_n(ZST, 101));
+        assert_matches!(
+            std.try_reserve(usize::MAX - 100),
+            Err(std::collections::TryReserveError { .. })
+        );
+
+        // NOTE: ensure that vec did attempt to allocate memory.
+        assert_eq!(temp.get_high_water_mark(), 0);
+    }
+
+    #[test]
+    fn test_push() {
+        let mut this = Vec::<u32, _>::new_in(Global);
+        this.push(8);
+        this.push(16);
+        assert_eq!(this, [8, 16]);
+    }
+
+    #[test]
+    fn test_pop() {
+        let mut this = Vec::<u32, _>::from_array_in([8, 16], Global);
+        assert_eq!(this.pop(), Some(16));
+        assert_eq!(this.pop(), Some(8));
+        assert_eq!(this.pop(), None);
+        assert_eq!(this, []);
+    }
+
+    #[test]
+    fn test_index() {
+        let this = Vec::<u32, _>::from_array_in([8, 16], Global);
+        assert_eq!(this[0], 8);
+        assert_eq!(this[1], 16);
+    }
+
+    #[test]
+    fn test_drain() {
+        let mut a = Vec::from_array_in([8, 16], Global);
+        let b = Vec::from_iter_in(a.drain(..), Global);
+        assert_eq!(a, []);
+        assert_eq!(b, [8, 16]);
+    }
+
+    // ----
+    // NOTE: tests that start with std_test_ are stolen from std.
+
+    #[test]
+    fn std_test_double_drop() {
+        struct DropCounter<'a> {
+            count: &'a mut u32,
+        }
+
+        impl Drop for DropCounter<'_> {
+            fn drop(&mut self) {
+                *self.count += 1;
+            }
+        }
+
+        struct TwoVec<T, A: Allocator> {
+            x: Vec<T, A>,
+            y: Vec<T, A>,
+        }
+
+        let (mut count_x, mut count_y) = (0, 0);
+        {
+            let mut tv = TwoVec {
+                x: Vec::new_in(Global),
+                y: Vec::new_in(Global),
+            };
+            tv.x.push(DropCounter {
+                count: &mut count_x,
+            });
+            tv.y.push(DropCounter {
+                count: &mut count_y,
+            });
+
+            // If Vec had a drop flag, here is where it would be zeroed.
+            // Instead, it should rely on its internal state to prevent
+            // doing anything significant when dropped multiple times.
+            drop(tv.x);
+
+            // Here tv goes out of scope, tv.y should be dropped, but not tv.x.
+        }
+        assert_eq!(count_x, 1);
+        assert_eq!(count_y, 1);
+    }
+
+    #[test]
+    #[cfg_attr(not(panic = "unwind"), ignore = "test requires unwinding support")]
+    fn std_test_drain_leak() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        struct_with_counted_drop!(D(u32, bool), DROPS => |this: &D| if this.1 { panic!("panic in `drop`"); });
+
+        let mut v = Vec::from_array_in(
+            [
+                D(0, false),
+                D(1, false),
+                D(2, false),
+                D(3, false),
+                D(4, true),
+                D(5, false),
+                D(6, false),
+            ],
+            Global,
+        );
+
+        catch_unwind(AssertUnwindSafe(|| {
+            v.drain(2..=5);
+        }))
+        .ok();
+
+        assert_eq!(DROPS.get(), 4);
+        assert_eq!(
+            v,
+            Vec::from_array_in([D(0, false), D(1, false), D(6, false)], Global)
+        );
+    }
+
+    #[test]
+    fn std_test_vec_truncate_drop() {
+        struct_with_counted_drop!(Elem(i32), DROPS);
+
+        let mut v = Vec::from_array_in([Elem(1), Elem(2), Elem(3), Elem(4), Elem(5)], Global);
+
+        assert_eq!(DROPS.get(), 0);
+        v.truncate(3);
+        assert_eq!(DROPS.get(), 2);
+        v.truncate(0);
+        assert_eq!(DROPS.get(), 5);
+    }
 }
