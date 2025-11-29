@@ -100,6 +100,11 @@ impl<T, M: Memory<T>> Vector<T, M> {
         }
     }
 
+    #[inline]
+    pub fn memory(&self) -> &M {
+        &self.mem
+    }
+
     /// will always return `usize::MAX` if `T` is zero-sized.
     #[inline]
     pub fn cap(&self) -> usize {

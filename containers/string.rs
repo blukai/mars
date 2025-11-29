@@ -179,6 +179,11 @@ impl<M: Memory<u8>> String<M> {
     }
 
     #[inline]
+    pub fn memory(&self) -> &M {
+        &self.vec.memory()
+    }
+
+    #[inline]
     pub fn cap(&self) -> usize {
         self.vec.cap()
     }

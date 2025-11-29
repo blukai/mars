@@ -53,6 +53,11 @@ impl<T, A: Allocator> GrowableMemory<T, A> {
     }
 
     #[inline]
+    pub fn allocator(&self) -> &A {
+        &self.alloc
+    }
+
+    #[inline]
     pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
         // TODO: should with_cap resize (grow/shrink)?
         assert_eq!(self.cap, 0);
@@ -179,6 +184,17 @@ impl<T, const N: usize, A: Allocator> SpillableMemory<T, N, A> {
             kind: SpillableMemoryKind::Fixed(FixedMemory::default()),
             alloc: Some(alloc),
         }
+    }
+
+    #[inline]
+    pub fn allocator(&self) -> &A {
+        if let Some(ref alloc) = self.alloc {
+            return alloc;
+        }
+        if let SpillableMemoryKind::Growable(ref growable) = self.kind {
+            return growable.allocator();
+        }
+        unreachable!()
     }
 }
 
