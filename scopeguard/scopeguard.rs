@@ -19,6 +19,7 @@ impl ScopeGuard<(), fn(())> {
 }
 
 impl<T, F: FnOnce(T)> ScopeGuard<T, F> {
+    // TODO: consider renaming ScopeGuard's new_with_data into with_data.
     #[must_use]
     pub fn new_with_data(data: T, cleanup: F) -> Self {
         Self(Some((data, cleanup)))

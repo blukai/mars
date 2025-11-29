@@ -17,6 +17,28 @@ pub unsafe trait Memory<T> {
 pub struct GrowableMemory<T, A: Allocator> {
     ptr: NonNull<T>,
     cap: usize,
+    // TODO: is there a sane way to not store alloc?
+    //
+    //   i absolutely hate the idea of storing non-zero sized alloc at each container:
+    //     - having anything in global scope (/static) is very-very awkward in rust;
+    //       this seems to be the only way of making zero-sized allocators.
+    //     - allocators cannot be clonable unless they bind to global state or rc/arc'ed.
+    //     - the fact that each single tiny thing allocates needs to be generic over it's
+    //       allocator. and these generic params need to propagate upwards .. is somewhat nightmarish.
+    //       and there are different kinds of allocators.
+    //       certain things would need multiple alloc params.
+    //       you can solve propagation issue by just specifying concrete allocator though.
+    //
+    //   do it like zig does, accepting allocator as an arg in functions that may allocate?
+    //   with that:
+    //     - _assume_cap methods must not try to allocate (but can return capacity error).
+    //     - _in methods may allocate, these will accept allocator arg.
+    //   but then there would be no way to rely on Drop? instead things would need to be
+    //   deinitialized explicitly:
+    //     - panic on drop and require explicit deinitialization.
+    //     - but then it'll become easy to be confused about which allocator the thing was
+    //       allocated with without some kind of markers.
+    //     - this would remove a feature or rust that i actually kind of enjoy.
     alloc: A,
 }
 
@@ -31,12 +53,13 @@ impl<T, A: Allocator> GrowableMemory<T, A> {
     }
 
     #[inline]
-    pub fn try_new_with_cap_in(cap: usize, alloc: A) -> Result<Self, AllocError> {
-        let mut this = Self::new_in(alloc);
+    pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
+        // TODO: should with_cap resize (grow/shrink)?
+        assert_eq!(self.cap, 0);
         if cap > 0 {
-            unsafe { this.grow(cap)? };
+            unsafe { self.grow(cap)? };
         }
-        Ok(this)
+        Ok(self)
     }
 }
 
@@ -97,20 +120,6 @@ impl<T, A: Allocator + Default> Default for GrowableMemory<T, A> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
-mod oom_growable_memory {
-    use crate::this_is_fine;
-
-    use super::*;
-
-    impl<T, A: Allocator> GrowableMemory<T, A> {
-        #[inline]
-        pub fn new_with_cap_in(cap: usize, alloc: A) -> Self {
-            this_is_fine(Self::try_new_with_cap_in(cap, alloc))
-        }
-    }
-}
-
 // ----
 // fixed
 
@@ -151,32 +160,32 @@ impl<T, const N: usize> Default for FixedMemory<T, N> {
 }
 
 // ----
-// fixed+growable
+// spillable (fixed on stack -> spill to growable on heap)
 
-pub enum FixedGrowableMemoryKind<T, const N: usize, A: Allocator> {
+pub enum SpillableMemoryKind<T, const N: usize, A: Allocator> {
     Fixed(FixedMemory<T, N>),
     Growable(GrowableMemory<T, A>),
 }
 
-pub struct FixedGrowableMemory<T, const N: usize, A: Allocator> {
-    pub kind: FixedGrowableMemoryKind<T, N, A>,
+pub struct SpillableMemory<T, const N: usize, A: Allocator> {
+    pub kind: SpillableMemoryKind<T, N, A>,
     alloc: Option<A>,
 }
 
-impl<T, const N: usize, A: Allocator> FixedGrowableMemory<T, N, A> {
+impl<T, const N: usize, A: Allocator> SpillableMemory<T, N, A> {
     #[inline]
     pub fn new_in(alloc: A) -> Self {
         Self {
-            kind: FixedGrowableMemoryKind::Fixed(FixedMemory::default()),
+            kind: SpillableMemoryKind::Fixed(FixedMemory::default()),
             alloc: Some(alloc),
         }
     }
 }
 
-unsafe impl<T, const N: usize, A: Allocator> Memory<T> for FixedGrowableMemory<T, N, A> {
+unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N, A> {
     #[inline]
     fn as_ptr(&self) -> *const T {
-        use FixedGrowableMemoryKind::*;
+        use SpillableMemoryKind::*;
         match self.kind {
             Fixed(ref fixed) => Memory::as_ptr(fixed),
             Growable(ref growable) => Memory::as_ptr(growable),
@@ -185,7 +194,7 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for FixedGrowableMemory<T
 
     #[inline]
     fn as_mut_ptr(&mut self) -> *mut T {
-        use FixedGrowableMemoryKind::*;
+        use SpillableMemoryKind::*;
         match self.kind {
             Fixed(ref mut fixed) => Memory::as_mut_ptr(fixed),
             Growable(ref mut growable) => Memory::as_mut_ptr(growable),
@@ -194,7 +203,7 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for FixedGrowableMemory<T
 
     #[inline]
     fn cap(&self) -> usize {
-        use FixedGrowableMemoryKind::*;
+        use SpillableMemoryKind::*;
         match self.kind {
             Fixed(ref fixed) => Memory::cap(fixed),
             Growable(ref growable) => Memory::cap(growable),
@@ -202,11 +211,11 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for FixedGrowableMemory<T
     }
 
     unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError> {
-        use FixedGrowableMemoryKind::*;
+        use SpillableMemoryKind::*;
         match self.kind {
             Fixed(ref mut fixed) => {
                 let alloc = self.alloc.take().expect("unyoinked alloc");
-                let mut growable = GrowableMemory::<T, A>::try_new_with_cap_in(new_cap, alloc)?;
+                let mut growable = GrowableMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
                 unsafe {
                     growable
                         .as_mut_ptr()
@@ -220,9 +229,25 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for FixedGrowableMemory<T
     }
 }
 
-impl<T, const N: usize, A: Allocator + Default> Default for FixedGrowableMemory<T, N, A> {
+impl<T, const N: usize, A: Allocator + Default> Default for SpillableMemory<T, N, A> {
     #[inline]
     fn default() -> Self {
         Self::new_in(A::default())
+    }
+}
+
+// ----
+
+#[cfg(not(no_global_oom_handling))]
+mod oom {
+    use crate::this_is_fine;
+
+    use super::*;
+
+    impl<T, A: Allocator> GrowableMemory<T, A> {
+        #[inline]
+        pub fn with_cap(self, cap: usize) -> Self {
+            this_is_fine(self.try_with_cap(cap))
+        }
     }
 }

@@ -6,7 +6,7 @@ use core::{mem, ops};
 
 use alloc::{AllocError, Allocator, Global};
 
-use crate::memory::{FixedGrowableMemory, FixedMemory, GrowableMemory, Memory};
+use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 use crate::vector::Vector;
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
@@ -277,7 +277,7 @@ impl<M: Memory<u8>> String<M> {
     }
 
     // ----
-    // construct from
+    // construct-from
 
     #[inline]
     pub const unsafe fn from_utf8_unchecked(vec: Vector<u8, M>) -> Self {
@@ -292,18 +292,30 @@ impl<M: Memory<u8>> String<M> {
         }
     }
 
+    // ----
+    // builder-lite
+
     #[inline]
-    pub fn try_from_str_in(s: &str, mem: M) -> Result<Self, AllocError> {
-        let mut this = Self::new_in(mem);
-        this.try_push_str(s)?;
-        Ok(this)
+    pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
+        // TODO: should with_cap resize (grow/shrink)?
+        assert_eq!(self.cap(), 0);
+        self.try_reserve_exact(cap)?;
+        Ok(self)
+    }
+
+    // ----
+    // builder-lite with
+
+    #[inline]
+    pub fn try_with_str(mut self, s: &str) -> Result<Self, AllocError> {
+        self.try_push_str(s)?;
+        Ok(self)
     }
 
     #[inline]
-    pub fn try_from_char_in(c: char, mem: M) -> Result<Self, AllocError> {
-        let mut this = Self::new_in(mem);
-        this.try_push_char(c)?;
-        Ok(this)
+    pub fn try_with_char(mut self, c: char) -> Result<Self, AllocError> {
+        self.try_push_char(c)?;
+        Ok(self)
     }
 
     /// format in two passes; no overallocation.
@@ -312,25 +324,23 @@ impl<M: Memory<u8>> String<M> {
     ///   - second pass will reserve exact amount of memory and perform the actual write.
     ///
     ///   [`fmt::Arguments`] has no facilities for determining size needed to fit everything.
-    pub fn try_from_format_args_in(args: fmt::Arguments<'_>, mem: M) -> Result<Self, FromFmtError> {
+    pub fn try_with_format_args(mut self, args: fmt::Arguments<'_>) -> Result<Self, FromFmtError> {
         // NOTE: first we'll compute size of the buffer.
         let size = {
             let mut f = RawFormatter::empty();
             f.write_fmt(args).map_err(FromFmtError::Fmt)?;
             f.written()
         };
-        let mut buf = Vector::new_in(mem);
-        buf.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
+        self.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
 
-        let mut f = Formatter::from_raw_parts(buf.as_mut_ptr(), size);
+        let mut f = Formatter::from_raw_parts(self.as_mut_ptr(), size);
         f.write_fmt(args).map_err(FromFmtError::Fmt)?;
 
         assert_eq!(size, f.written());
         // SAFETY: `size` number of bytes have been written buf by Formatter.
-        unsafe { buf.set_len(size) };
+        unsafe { self.set_len(size) };
 
-        // SAFETY: formatter replaced everything that is non valid utf8 with replacement char.
-        Ok(unsafe { Self::from_utf8_unchecked(buf) })
+        Ok(self)
     }
 }
 
@@ -427,7 +437,7 @@ impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
 
 #[cfg(not(no_global_oom_handling))]
-mod oom_string {
+mod oom {
     use crate::{eek, this_is_fine};
 
     use super::*;
@@ -452,21 +462,31 @@ mod oom_string {
         pub fn push_char(&mut self, c: char) {
             this_is_fine(self.try_push_char(c))
         }
+
         // ----
-        // construct from
+        // builder-lite
 
         #[inline]
-        pub fn from_str_in(s: &str, mem: M) -> Self {
-            this_is_fine(Self::try_from_str_in(s, mem))
+        pub fn with_cap(self, cap: usize) -> Self {
+            this_is_fine(self.try_with_cap(cap))
+        }
+
+        // ----
+        // builder-lite with
+
+        #[inline]
+        pub fn with_str(self, s: &str) -> Self {
+            this_is_fine(self.try_with_str(s))
         }
 
         #[inline]
-        pub fn from_char_in(c: char, mem: M) -> Self {
-            this_is_fine(Self::try_from_char_in(c, mem))
+        pub fn with_char(self, c: char) -> Self {
+            this_is_fine(self.try_with_char(c))
         }
 
-        pub fn from_format_args_in(args: fmt::Arguments<'_>, mem: M) -> Self {
-            match Self::try_from_format_args_in(args, mem) {
+        #[inline]
+        pub fn with_format_args(self, args: fmt::Arguments<'_>) -> Self {
+            match self.try_with_format_args(args) {
                 Ok(ok) => ok,
                 Err(FromFmtError::Alloc(err)) => eek(err),
                 Err(FromFmtError::Fmt(err)) => panic!("could not format: {err}"),
@@ -474,14 +494,6 @@ mod oom_string {
         }
     }
 }
-
-#[expect(type_alias_bounds)]
-pub type GrowableString<A: Allocator> = String<GrowableMemory<u8, A>>;
-
-pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
-
-#[expect(type_alias_bounds)]
-pub type FixedGrowableString<const N: usize, A: Allocator> = String<FixedGrowableMemory<u8, N, A>>;
 
 #[macro_export]
 macro_rules! format {
@@ -492,12 +504,54 @@ macro_rules! format {
         )
     };
     (in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::String::from_format_args_in(
-            format_args!($($arg)*),
-            $crate::memory::GrowableMemory::new_in($alloc),
-        )
+        $crate::string::String::new_in($crate::memory::GrowableMemory::new_in($alloc))
+            .with_format_args(format_args!($($arg)*))
     };
 }
+
+// ----
+// aliases and their makers below
+
+#[expect(type_alias_bounds)]
+pub type GrowableString<A: Allocator> = String<GrowableMemory<u8, A>>;
+
+impl<A: Allocator> GrowableString<A> {
+    #[inline]
+    pub fn new_growable_in(alloc: A) -> Self {
+        Self::new_in(GrowableMemory::new_in(alloc))
+    }
+}
+
+pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
+
+const _: () = {
+    // NOTE: max len of string + length
+    assert!(size_of::<FixedString<16>>() == 16 + size_of::<usize>());
+};
+
+impl<const N: usize> FixedString<N> {
+    #[inline]
+    pub fn new_fixed() -> Self {
+        Self::new_in(FixedMemory::default())
+    }
+}
+
+#[expect(type_alias_bounds)]
+pub type SpillableString<const N: usize, A: Allocator> = String<SpillableMemory<u8, N, A>>;
+
+impl<const N: usize, A: Allocator> SpillableString<N, A> {
+    #[inline]
+    pub fn new_spillable_in(alloc: A) -> Self {
+        Self::new_in(SpillableMemory::new_in(alloc))
+    }
+
+    #[inline]
+    pub fn is_spilled(&self) -> bool {
+        self.vec.is_spilled()
+    }
+}
+
+// ----
 
 #[cfg(test)]
 mod tests {
@@ -531,7 +585,7 @@ mod tests {
 
     #[test]
     fn test_std_push() {
-        let mut data = String::from_str_in("ประเทศไทย中", GrowableMemory::new_in(Global));
+        let mut data = String::new_in(GrowableMemory::new_in(Global)).with_str("ประเทศไทย中");
         data.push_char('华');
         data.push_char('b'); // 1 byte
         data.push_char('¢'); // 2 byte
@@ -542,7 +596,8 @@ mod tests {
 
     #[test]
     fn test_std_pop() {
-        let mut data = String::from_str_in("ประเทศไทย中华b¢€𤭢", GrowableMemory::new_in(Global));
+        let mut data =
+            String::new_in(GrowableMemory::new_in(Global)).with_str("ประเทศไทย中华b¢€𤭢");
         assert_eq!(data.pop(), Some('𤭢')); // 4 bytes
         assert_eq!(data.pop(), Some('€')); // 3 bytes
         assert_eq!(data.pop(), Some('¢')); // 2 bytes
@@ -553,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_std_clear() {
-        let mut s = String::from_str_in("12345", GrowableMemory::new_in(Global));
+        let mut s = String::new_in(GrowableMemory::new_in(Global)).with_str("12345");
         s.clear();
         assert_eq!(s.len(), 0);
         assert_eq!(s, "");
@@ -561,7 +616,7 @@ mod tests {
 
     #[test]
     fn test_std_slicing() {
-        let s = String::from_str_in("foobar", GrowableMemory::new_in(Global));
+        let s = String::new_in(GrowableMemory::new_in(Global)).with_str("foobar");
         assert_eq!("foobar", &s[..]);
         assert_eq!("foo", &s[..3]);
         assert_eq!("bar", &s[3..]);

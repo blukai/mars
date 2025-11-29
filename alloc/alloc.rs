@@ -1,4 +1,4 @@
-// NOTE: re-exports alloc from allocator-api2.
+// NOTE: re-export alloc from allocator-api2.
 //   i don't really want to copypaste it in because there are some nice crates, like hashbrown,
 //   that support allocator-api2.
 pub use allocator_api2::alloc::*;

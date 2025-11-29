@@ -6,12 +6,10 @@ use core::slice;
 use core::{fmt, ops};
 use std::io;
 
-use alloc::{AllocError, Allocator, Global};
+use alloc::{AllocError, Allocator};
 use scopeguard::ScopeGuard;
 
-use crate::memory::{
-    FixedGrowableMemory, FixedGrowableMemoryKind, FixedMemory, GrowableMemory, Memory,
-};
+use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory, SpillableMemoryKind};
 
 // NOTE: this is copypasted from std.
 //
@@ -75,7 +73,6 @@ impl<T> fmt::Display for PushError<T> {
     }
 }
 
-// TODO: rename vec to vector.
 pub struct Vector<T, M: Memory<T>> {
     mem: M,
     len: usize,
@@ -83,7 +80,7 @@ pub struct Vector<T, M: Memory<T>> {
 }
 
 const _: () = {
-    let this = size_of::<Vector<u8, GrowableMemory<u8, Global>>>();
+    let this = size_of::<Vector<u8, GrowableMemory<u8, alloc::Global>>>();
     let std = size_of::<std::vec::Vec<u8>>();
     assert!(this <= std)
 };
@@ -314,7 +311,8 @@ impl<T, M: Memory<T>> Vector<T, M> {
         T: Copy,
     {
         let count = other.len();
-        self.try_reserve_amortized(count)?;
+        // NOTE: std vec probably (?) does amortized reserve in this case.
+        self.try_reserve_exact(count)?;
         unsafe {
             self.as_mut_ptr()
                 .add(self.len())
@@ -325,25 +323,34 @@ impl<T, M: Memory<T>> Vector<T, M> {
     }
 
     // ----
-    // construct from
+    // builder-lite
 
-    pub fn try_from_iter_in<I: Iterator<Item = T>>(iter: I, mem: M) -> Result<Self, AllocError> {
-        let mut this = Self::new_in(mem);
-        this.try_extend_from_iter(iter)?;
-        Ok(this)
+    #[inline]
+    pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
+        // TODO: should with_cap resize (grow/shrink)?
+        assert_eq!(self.cap(), 0);
+        self.try_reserve_exact(cap)?;
+        Ok(self)
     }
 
-    /// use [`Self::try_from_iter_in`] for items that cannot be copied.
-    pub fn try_from_slice_copy_in(slice: &[T], mem: M) -> Result<Self, AllocError>
+    // ----
+    // builder-lite with
+
+    pub fn try_with_iter<I: Iterator<Item = T>>(mut self, iter: I) -> Result<Self, AllocError> {
+        self.try_extend_from_iter(iter)?;
+        Ok(self)
+    }
+
+    /// use [`Self::try_with_iter`] for items that cannot be copied.
+    pub fn try_with_slice_copy(mut self, slice: &[T]) -> Result<Self, AllocError>
     where
         T: Copy,
     {
-        let mut this = Self::new_in(mem);
-        this.try_extend_from_slice_copy(slice)?;
-        Ok(this)
+        self.try_extend_from_slice_copy(slice)?;
+        Ok(self)
     }
 
-    pub fn try_from_array_in<const N: usize>(array: [T; N], mem: M) -> Result<Self, AllocError> {
+    pub fn try_with_array<const C: usize>(mut self, array: [T; C]) -> Result<Self, AllocError> {
         // NOTE: this is somewhat of an untangled version of what std does
         //   but not quite; although technically mostly yes...
         //
@@ -351,13 +358,13 @@ impl<T, M: Memory<T>> Vector<T, M> {
         //   constructs Vec from raw parts.
         //
         //   std's Box::new method is relying on not-publicly-available lang exchange malloc
-        //   intrinsic that supposedly can put array onto the heap right away omitting stack.
+        //   intrinsic that supposedly can put array onto the heap right away omitting the stack
+        //   (somehow? how?).
         //   we can't do exactly copy that.
-        let mut this = Self::new_in(mem);
-        this.try_reserve_exact(array.len())?;
-        unsafe { this.as_mut_ptr().cast::<[T; N]>().write(array) };
-        this.len = N;
-        Ok(this)
+        self.try_reserve_exact(array.len())?;
+        unsafe { self.as_mut_ptr().cast::<[T; C]>().write(array) };
+        self.len = C;
+        Ok(self)
     }
 }
 
@@ -513,7 +520,7 @@ impl<T, M: Memory<T>> DoubleEndedIterator for Drain<'_, T, M> {
 impl<T, M: Memory<T>> ExactSizeIterator for Drain<'_, T, M> {}
 
 #[cfg(not(no_global_oom_handling))]
-mod oom_vec {
+mod oom {
     use crate::{eek, this_is_fine};
 
     use super::*;
@@ -553,47 +560,83 @@ mod oom_vec {
         }
 
         // ----
-        // construct from
+        // builder-lite
 
         #[inline]
-        pub fn from_iter_in<I: Iterator<Item = T>>(iter: I, mem: M) -> Self {
-            this_is_fine(Self::try_from_iter_in(iter, mem))
+        pub fn with_cap(self, cap: usize) -> Self {
+            this_is_fine(self.try_with_cap(cap))
+        }
+
+        // ----
+        // builder-lite with
+
+        #[inline]
+        pub fn with_iter<I: Iterator<Item = T>>(self, iter: I) -> Self {
+            this_is_fine(self.try_with_iter(iter))
         }
 
         #[inline]
-        pub fn from_slice_copy_in(slice: &[T], mem: M) -> Self
+        pub fn with_slice_copy(self, slice: &[T]) -> Self
         where
             T: Copy,
         {
-            this_is_fine(Self::try_from_slice_copy_in(slice, mem))
+            this_is_fine(self.try_with_slice_copy(slice))
         }
 
         #[inline]
-        pub fn from_array_in<const N: usize>(array: [T; N], mem: M) -> Self {
-            this_is_fine(Self::try_from_array_in(array, mem))
+        pub fn with_array<const C: usize>(self, array: [T; C]) -> Self {
+            this_is_fine(self.try_with_array(array))
         }
     }
 }
 
+// ----
+// aliases and their makers below
+
 #[expect(type_alias_bounds)]
 pub type GrowableVector<T, A: Allocator> = Vector<T, GrowableMemory<T, A>>;
 
+impl<T, A: Allocator> GrowableVector<T, A> {
+    #[inline]
+    pub fn new_growable_in(alloc: A) -> Self {
+        Self::new_in(GrowableMemory::new_in(alloc))
+    }
+}
+
 pub type FixedVector<T, const N: usize> = Vector<T, FixedMemory<T, N>>;
 
-#[expect(type_alias_bounds)]
-pub type FixedGrowableVector<T, const N: usize, A: Allocator> =
-    Vector<T, FixedGrowableMemory<T, N, A>>;
+const _: () = {
+    // NOTE: max len of string + length
+    assert!(size_of::<FixedVector<u8, 16>>() == 16 + size_of::<usize>());
+};
 
-impl<T, const N: usize, A: Allocator> FixedGrowableVector<T, N, A> {
+impl<T, const N: usize> FixedVector<T, N> {
+    #[inline]
+    pub fn new_fixed() -> Self {
+        Self::new_in(FixedMemory::default())
+    }
+}
+
+#[expect(type_alias_bounds)]
+pub type SpillableVector<T, const N: usize, A: Allocator> = Vector<T, SpillableMemory<T, N, A>>;
+
+impl<T, const N: usize, A: Allocator> SpillableVector<T, N, A> {
+    #[inline]
+    pub fn new_spillable_in(alloc: A) -> Self {
+        Self::new_in(SpillableMemory::new_in(alloc))
+    }
+
     #[inline]
     pub fn is_spilled(&self) -> bool {
-        use FixedGrowableMemoryKind::*;
+        use SpillableMemoryKind::*;
         match self.mem.kind {
             Growable(GrowableMemory { .. }) => true,
             Fixed(FixedMemory { .. }) => false,
         }
     }
 }
+
+// ----
 
 #[cfg(test)]
 mod tests {
@@ -605,7 +648,7 @@ mod tests {
 
     #[test]
     fn test_push() {
-        let mut this = Vector::<u32, _>::new_in(GrowableMemory::new_in(Global));
+        let mut this = Vector::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
         this.push(8);
         this.push(16);
         assert_eq!(this, [8, 16]);
@@ -613,7 +656,8 @@ mod tests {
 
     #[test]
     fn test_pop() {
-        let mut this = Vector::<u32, _>::from_array_in([8, 16], GrowableMemory::new_in(Global));
+        let mut this =
+            Vector::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global)).with_array([8, 16]);
         assert_eq!(this.pop(), Some(16));
         assert_eq!(this.pop(), Some(8));
         assert_eq!(this.pop(), None);
@@ -622,15 +666,16 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let this = Vector::<u32, _>::from_array_in([8, 16], GrowableMemory::new_in(Global));
+        let this =
+            Vector::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global)).with_array([8, 16]);
         assert_eq!(this[0], 8);
         assert_eq!(this[1], 16);
     }
 
     #[test]
     fn test_drain() {
-        let mut a = Vector::from_array_in([8, 16], GrowableMemory::new_in(Global));
-        let b = Vector::from_iter_in(a.drain(..), GrowableMemory::new_in(Global));
+        let mut a = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_array([8, 16]);
+        let b = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_iter(a.drain(..));
         assert_eq!(a, []);
         assert_eq!(b, [8, 16]);
     }
@@ -649,7 +694,7 @@ mod tests {
     #[test]
     fn test_matches_std_reserve_amortized_strategy() {
         {
-            let mut this: Vector<u32, _> = Vector::new_in(GrowableMemory::new_in(Global));
+            let mut this: Vector<u32, _> = Vector::new_in(GrowableMemory::new_in(alloc::Global));
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
             this.try_reserve_amortized(9).unwrap();
@@ -658,7 +703,7 @@ mod tests {
         }
 
         {
-            let mut this: Vector<u32, _> = Vector::new_in(GrowableMemory::new_in(Global));
+            let mut this: Vector<u32, _> = Vector::new_in(GrowableMemory::new_in(alloc::Global));
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
             this.try_reserve_amortized(8).unwrap();
@@ -718,7 +763,7 @@ mod tests {
         let mut temp_data = [0; 1000];
         let temp = alloc::TempAllocator::new(&mut temp_data);
 
-        let mut this = FixedGrowableVector::new_in(FixedGrowableMemory::<u32, 2, _>::new_in(&temp));
+        let mut this = SpillableVector::new_in(SpillableMemory::<u32, 2, _>::new_in(&temp));
         assert!(this.try_push(8).is_ok());
         assert!(this.try_push(16).is_ok());
         assert!(!this.is_spilled());
@@ -750,8 +795,8 @@ mod tests {
         let (mut count_x, mut count_y) = (0, 0);
         {
             let mut tv = TwoVec {
-                x: Vector::new_in(GrowableMemory::new_in(Global)),
-                y: Vector::new_in(GrowableMemory::new_in(Global)),
+                x: Vector::new_in(GrowableMemory::new_in(alloc::Global)),
+                y: Vector::new_in(GrowableMemory::new_in(alloc::Global)),
             };
             tv.x.push(DropCounter {
                 count: &mut count_x,
@@ -778,18 +823,15 @@ mod tests {
 
         struct_with_counted_drop!(D(u32, bool), DROPS => |this: &D| if this.1 { panic!("panic in `drop`"); });
 
-        let mut v = Vector::from_array_in(
-            [
-                D(0, false),
-                D(1, false),
-                D(2, false),
-                D(3, false),
-                D(4, true),
-                D(5, false),
-                D(6, false),
-            ],
-            GrowableMemory::new_in(Global),
-        );
+        let mut v = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_array([
+            D(0, false),
+            D(1, false),
+            D(2, false),
+            D(3, false),
+            D(4, true),
+            D(5, false),
+            D(6, false),
+        ]);
 
         catch_unwind(AssertUnwindSafe(|| {
             v.drain(2..=5);
@@ -804,10 +846,13 @@ mod tests {
     fn test_std_vec_truncate_drop() {
         struct_with_counted_drop!(Elem(i32), DROPS);
 
-        let mut v = Vector::from_array_in(
-            [Elem(1), Elem(2), Elem(3), Elem(4), Elem(5)],
-            GrowableMemory::new_in(Global),
-        );
+        let mut v = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_array([
+            Elem(1),
+            Elem(2),
+            Elem(3),
+            Elem(4),
+            Elem(5),
+        ]);
 
         assert_eq!(DROPS.get(), 0);
         v.truncate(3);
