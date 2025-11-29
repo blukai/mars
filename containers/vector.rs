@@ -222,7 +222,6 @@ impl<T, M: Memory<T>> Vector<T, M> {
     }
 
     /// removes the last item and returns it, or `None` if it is empty.
-    #[inline]
     pub fn pop(&mut self) -> Option<T> {
         if self.len() == 0 {
             return None;
@@ -230,6 +229,22 @@ impl<T, M: Memory<T>> Vector<T, M> {
         unsafe {
             self.len -= 1;
             Some(self.as_ptr().add(self.len()).read())
+        }
+    }
+
+    pub fn remove(&mut self, i: usize) -> Option<T> {
+        let len = self.len();
+        if i >= len {
+            return None;
+        }
+        unsafe {
+            let ptr = self.as_mut_ptr().add(i);
+            // NOTE: now we'll have two values. one here, on the stack, and one in vec.
+            let value = ptr::read(ptr);
+            // shift everything to fill in that spot.
+            ptr::copy(ptr.add(1), ptr, len - i - 1);
+            self.len -= 1;
+            Some(value)
         }
     }
 
@@ -662,6 +677,16 @@ mod tests {
         assert_eq!(this.pop(), Some(8));
         assert_eq!(this.pop(), None);
         assert_eq!(this, []);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut this = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_array([1, 2, 3]);
+        assert_eq!(this.remove(0), Some(1));
+        assert_eq!(this.remove(2), None);
+
+        let mut this = Vector::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        assert!(this.remove(0).is_none());
     }
 
     #[test]

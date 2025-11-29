@@ -239,7 +239,6 @@ impl<M: Memory<u8>> String<M> {
         Ok(())
     }
 
-    #[inline]
     pub fn pop(&mut self) -> Option<char> {
         let c = self.chars().rev().next()?;
         let new_len = self.len() - c.len_utf8();
