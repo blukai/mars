@@ -2,7 +2,7 @@ use core::error::Error;
 use core::fmt::{self, Write as _};
 use core::marker::PhantomData;
 pub use core::str::Utf8Error;
-use core::{mem, ops};
+use core::{mem, ops, ptr};
 
 use alloc::{AllocError, Allocator, Global};
 
@@ -440,6 +440,59 @@ impl_partial_eq! { [M: Memory<u8>] String<M>, std::string::String }
 impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
 
+// ----
+// aliases and their makers below
+
+#[expect(type_alias_bounds)]
+pub type GrowableString<A: Allocator> = String<GrowableMemory<u8, A>>;
+
+impl<A: Allocator> GrowableString<A> {
+    #[inline]
+    pub fn new_growable_in(alloc: A) -> Self {
+        Self::new_in(GrowableMemory::new_in(alloc))
+    }
+}
+
+pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
+
+const _: () = {
+    // NOTE: max len of string + length
+    assert!(size_of::<FixedString<16>>() == 16 + size_of::<usize>());
+};
+
+impl<const N: usize> FixedString<N> {
+    #[inline]
+    pub fn new_fixed() -> Self {
+        Self::new_in(FixedMemory::default())
+    }
+}
+
+// @TryCloneIn
+impl<const N: usize> Clone for FixedString<N> {
+    #[inline]
+    fn clone(&self) -> Self {
+        // SAFETY: self is a bunch of u8 and a usize. ok to copy these.
+        unsafe { ptr::read(self) }
+    }
+}
+
+#[expect(type_alias_bounds)]
+pub type SpillableString<const N: usize, A: Allocator> = String<SpillableMemory<u8, N, A>>;
+
+impl<const N: usize, A: Allocator> SpillableString<N, A> {
+    #[inline]
+    pub fn new_spillable_in(alloc: A) -> Self {
+        Self::new_in(SpillableMemory::new_in(alloc))
+    }
+
+    #[inline]
+    pub fn is_spilled(&self) -> bool {
+        self.vec.is_spilled()
+    }
+}
+
+// ----
+
 #[cfg(not(no_global_oom_handling))]
 mod oom {
     use crate::{eek, this_is_fine};
@@ -497,7 +550,21 @@ mod oom {
             }
         }
     }
+
+    impl<A: Allocator + Clone> Clone for GrowableString<A> {
+        fn clone(&self) -> Self {
+            Self::new_growable_in(self.vec.memory().allocator().clone()).with_str(self)
+        }
+    }
+
+    impl<const N: usize, A: Allocator + Clone> Clone for SpillableString<N, A> {
+        fn clone(&self) -> Self {
+            Self::new_spillable_in(self.vec.memory().allocator().clone()).with_str(self)
+        }
+    }
 }
+
+// ----
 
 #[macro_export]
 macro_rules! format {
@@ -511,48 +578,6 @@ macro_rules! format {
         $crate::string::String::new_in($crate::memory::GrowableMemory::new_in($alloc))
             .with_format_args(format_args!($($arg)*))
     };
-}
-
-// ----
-// aliases and their makers below
-
-#[expect(type_alias_bounds)]
-pub type GrowableString<A: Allocator> = String<GrowableMemory<u8, A>>;
-
-impl<A: Allocator> GrowableString<A> {
-    #[inline]
-    pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableMemory::new_in(alloc))
-    }
-}
-
-pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
-
-const _: () = {
-    // NOTE: max len of string + length
-    assert!(size_of::<FixedString<16>>() == 16 + size_of::<usize>());
-};
-
-impl<const N: usize> FixedString<N> {
-    #[inline]
-    pub fn new_fixed() -> Self {
-        Self::new_in(FixedMemory::default())
-    }
-}
-
-#[expect(type_alias_bounds)]
-pub type SpillableString<const N: usize, A: Allocator> = String<SpillableMemory<u8, N, A>>;
-
-impl<const N: usize, A: Allocator> SpillableString<N, A> {
-    #[inline]
-    pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableMemory::new_in(alloc))
-    }
-
-    #[inline]
-    pub fn is_spilled(&self) -> bool {
-        self.vec.is_spilled()
-    }
 }
 
 // ----

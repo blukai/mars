@@ -7,6 +7,11 @@ see:
 - https://smallcultfollowing.com/babysteps/blog/2022/04/12/implied-bounds-and-perfect-derive/.
 - https://rgbcu.be/blog/derive-broken
 
+@TryCloneIn
+----
+there's no checked (/ not oomable) standard cloning mechanism. see:
+- https://github.com/rust-lang/wg-allocators/issues/15#issuecomment-542885461
+
 TODO:
   - simple file watcher. i don't like notify crate. i don't like its dependency
     on walkdir. i'm not sure i like that it handles crate creation internally

@@ -539,6 +539,74 @@ impl<T, M: Memory<T>> DoubleEndedIterator for Drain<'_, T, M> {
 
 impl<T, M: Memory<T>> ExactSizeIterator for Drain<'_, T, M> {}
 
+// ----
+
+#[inline]
+fn vector_clone_slow<T: Clone, M: Memory<T>>(src: &Vector<T, M>, dst: &mut Vector<T, M>) {
+    assert!(dst.is_empty());
+    // NOTE: researve enough space to avoid reallocations that can be caused by logic
+    // that extends self from iter.
+    dst.reserve_exact(src.len());
+    // TODO: @Specialization don't iter cloned copyable items, copy all at once.
+    dst.extend_from_iter(src.iter().cloned());
+}
+
+// ----
+// aliases and their makers below
+
+#[expect(type_alias_bounds)]
+pub type GrowableVector<T, A: Allocator> = Vector<T, GrowableMemory<T, A>>;
+
+impl<T, A: Allocator> GrowableVector<T, A> {
+    #[inline]
+    pub fn new_growable_in(alloc: A) -> Self {
+        Self::new_in(GrowableMemory::new_in(alloc))
+    }
+}
+
+pub type FixedVector<T, const N: usize> = Vector<T, FixedMemory<T, N>>;
+
+const _: () = {
+    // NOTE: max len of string + length
+    assert!(size_of::<FixedVector<u8, 16>>() == 16 + size_of::<usize>());
+};
+
+impl<T, const N: usize> FixedVector<T, N> {
+    #[inline]
+    pub fn new_fixed() -> Self {
+        Self::new_in(FixedMemory::default())
+    }
+}
+
+impl<T: Clone, const N: usize> Clone for FixedVector<T, N> {
+    fn clone(&self) -> Self {
+        let mut ret = Self::new_fixed();
+        vector_clone_slow(self, &mut ret);
+        ret
+    }
+}
+
+#[expect(type_alias_bounds)]
+pub type SpillableVector<T, const N: usize, A: Allocator> = Vector<T, SpillableMemory<T, N, A>>;
+
+impl<T, const N: usize, A: Allocator> SpillableVector<T, N, A> {
+    #[inline]
+    pub fn new_spillable_in(alloc: A) -> Self {
+        Self::new_in(SpillableMemory::new_in(alloc))
+    }
+
+    #[inline]
+    pub fn is_spilled(&self) -> bool {
+        use SpillableMemoryKind::*;
+        match self.mem.kind {
+            Growable(GrowableMemory { .. }) => true,
+            Fixed(FixedMemory { .. }) => false,
+        }
+    }
+}
+
+// ----
+
 #[cfg(not(no_global_oom_handling))]
 mod oom {
     use crate::{eek, this_is_fine};
@@ -608,50 +676,22 @@ mod oom {
             this_is_fine(self.try_with_array(array))
         }
     }
-}
 
-// ----
-// aliases and their makers below
-
-#[expect(type_alias_bounds)]
-pub type GrowableVector<T, A: Allocator> = Vector<T, GrowableMemory<T, A>>;
-
-impl<T, A: Allocator> GrowableVector<T, A> {
-    #[inline]
-    pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableMemory::new_in(alloc))
-    }
-}
-
-pub type FixedVector<T, const N: usize> = Vector<T, FixedMemory<T, N>>;
-
-const _: () = {
-    // NOTE: max len of string + length
-    assert!(size_of::<FixedVector<u8, 16>>() == 16 + size_of::<usize>());
-};
-
-impl<T, const N: usize> FixedVector<T, N> {
-    #[inline]
-    pub fn new_fixed() -> Self {
-        Self::new_in(FixedMemory::default())
-    }
-}
-
-#[expect(type_alias_bounds)]
-pub type SpillableVector<T, const N: usize, A: Allocator> = Vector<T, SpillableMemory<T, N, A>>;
-
-impl<T, const N: usize, A: Allocator> SpillableVector<T, N, A> {
-    #[inline]
-    pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableMemory::new_in(alloc))
+    // @TryCloneIn
+    impl<T: Clone, A: Allocator + Clone> Clone for GrowableVector<T, A> {
+        fn clone(&self) -> Self {
+            let mut ret = Self::new_growable_in(self.mem.allocator().clone());
+            vector_clone_slow(self, &mut ret);
+            ret
+        }
     }
 
-    #[inline]
-    pub fn is_spilled(&self) -> bool {
-        use SpillableMemoryKind::*;
-        match self.mem.kind {
-            Growable(GrowableMemory { .. }) => true,
-            Fixed(FixedMemory { .. }) => false,
+    // @TryCloneIn
+    impl<T: Clone, const N: usize, A: Allocator + Clone> Clone for SpillableVector<T, N, A> {
+        fn clone(&self) -> Self {
+            let mut ret = Self::new_spillable_in(self.mem.allocator().clone());
+            vector_clone_slow(self, &mut ret);
+            ret
         }
     }
 }
@@ -889,5 +929,19 @@ mod tests {
         assert_eq!(DROPS.get(), 2);
         v.truncate(0);
         assert_eq!(DROPS.get(), 5);
+    }
+
+    #[test]
+    fn test_std_clone() {
+        let v = Vector::<i32, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let w =
+            Vector::new_in(GrowableMemory::<i32, _>::new_in(alloc::Global)).with_array([1, 2, 3]);
+
+        assert_eq!(v, v.clone());
+
+        let z = w.clone();
+        assert_eq!(w, z);
+        // they should be disjoint in memory.
+        assert!(w.as_ptr() != z.as_ptr())
     }
 }
