@@ -1,4 +1,5 @@
 use core::error::Error;
+use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
@@ -448,6 +449,13 @@ impl_partial_eq! { [M: Memory<T>] Vector<T, M>, std::vec::Vec<U> }
 impl_partial_eq! { [M: Memory<U>, const C: usize] [T; C], Vector<U, M> }
 impl_partial_eq! { [M: Memory<U>] [T], Vector<U, M> }
 impl_partial_eq! { [M: Memory<U>] std::vec::Vec<T>, Vector<U, M> }
+
+impl<T: Hash, M: Memory<T>> Hash for Vector<T, M> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(self.as_slice(), state)
+    }
+}
 
 /// the vector will grow as needed.
 impl<M: Memory<u8>> io::Write for Vector<u8, M> {

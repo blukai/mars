@@ -1,5 +1,6 @@
 use core::error::Error;
 use core::fmt::{self, Write as _};
+use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 pub use core::str::Utf8Error;
 use core::{mem, ops, ptr};
@@ -439,6 +440,13 @@ impl_partial_eq! { [M: Memory<u8>] String<M>, std::string::String }
 
 impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
+
+impl<M: Memory<u8>> Hash for String<M> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(self.as_str(), state)
+    }
+}
 
 // ----
 // aliases and their makers below
