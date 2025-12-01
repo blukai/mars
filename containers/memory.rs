@@ -1,4 +1,4 @@
-use core::mem::MaybeUninit;
+use core::mem::{self, MaybeUninit};
 use core::ptr::NonNull;
 
 use alloc::{AllocError, Allocator, Layout};
@@ -167,80 +167,89 @@ impl<T, const N: usize> Default for FixedMemory<T, N> {
 // ----
 // spillable (fixed on stack -> spill to growable on heap)
 
-pub enum SpillableMemoryKind<T, const N: usize, A: Allocator> {
-    Fixed(FixedMemory<T, N>),
+pub enum SpillableMemory<T, const N: usize, A: Allocator> {
+    // NOTE: Fixed variant holds onto A, it'll be passed to GrowableMemory on spill.
+    Fixed((FixedMemory<T, N>, A)),
     Growable(GrowableMemory<T, A>),
-}
-
-pub struct SpillableMemory<T, const N: usize, A: Allocator> {
-    pub kind: SpillableMemoryKind<T, N, A>,
-    alloc: Option<A>,
+    // NOTE: Transitional variant is used as a temp value while transitioning between
+    // fixed<->growable state.
+    // maybe there's a better way?
+    Transitional,
 }
 
 impl<T, const N: usize, A: Allocator> SpillableMemory<T, N, A> {
     #[inline]
     pub fn new_in(alloc: A) -> Self {
-        Self {
-            kind: SpillableMemoryKind::Fixed(FixedMemory::default()),
-            alloc: Some(alloc),
-        }
+        Self::Fixed((FixedMemory::default(), alloc))
     }
 
     #[inline]
     pub fn allocator(&self) -> &A {
-        if let Some(ref alloc) = self.alloc {
-            return alloc;
+        match self {
+            Self::Fixed((_, alloc)) => alloc,
+            Self::Growable(growable) => growable.allocator(),
+            Self::Transitional => unreachable!(),
         }
-        if let SpillableMemoryKind::Growable(ref growable) = self.kind {
-            return growable.allocator();
+    }
+
+    #[inline]
+    pub fn is_spilled(&self) -> bool {
+        match self {
+            Self::Fixed(..) => false,
+            Self::Growable(..) => true,
+            Self::Transitional => unreachable!(),
         }
-        unreachable!()
     }
 }
 
 unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N, A> {
     #[inline]
     fn as_ptr(&self) -> *const T {
-        use SpillableMemoryKind::*;
-        match self.kind {
-            Fixed(ref fixed) => Memory::as_ptr(fixed),
-            Growable(ref growable) => Memory::as_ptr(growable),
+        match self {
+            Self::Fixed((fixed, _)) => Memory::as_ptr(fixed),
+            Self::Growable(growable) => Memory::as_ptr(growable),
+            Self::Transitional => unreachable!(),
         }
     }
 
     #[inline]
     fn as_mut_ptr(&mut self) -> *mut T {
-        use SpillableMemoryKind::*;
-        match self.kind {
-            Fixed(ref mut fixed) => Memory::as_mut_ptr(fixed),
-            Growable(ref mut growable) => Memory::as_mut_ptr(growable),
+        match self {
+            Self::Fixed((fixed, _)) => Memory::as_mut_ptr(fixed),
+            Self::Growable(growable) => Memory::as_mut_ptr(growable),
+            Self::Transitional => unreachable!(),
         }
     }
 
     #[inline]
     fn cap(&self) -> usize {
-        use SpillableMemoryKind::*;
-        match self.kind {
-            Fixed(ref fixed) => Memory::cap(fixed),
-            Growable(ref growable) => Memory::cap(growable),
+        match self {
+            Self::Fixed((fixed, _)) => Memory::cap(fixed),
+            Self::Growable(growable) => Memory::cap(growable),
+            Self::Transitional => unreachable!(),
         }
     }
 
     unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError> {
-        use SpillableMemoryKind::*;
-        match self.kind {
-            Fixed(ref mut fixed) => {
-                let alloc = self.alloc.take().expect("unyoinked alloc");
+        // NOTE: this assert here just for documentation purposes.
+        debug_assert!(new_cap > self.cap());
+
+        match self {
+            Self::Fixed(..) => {
+                let Self::Fixed((fixed, alloc)) = mem::replace(self, Self::Transitional) else {
+                    unreachable!();
+                };
                 let mut growable = GrowableMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
                 unsafe {
                     growable
                         .as_mut_ptr()
                         .copy_from_nonoverlapping(fixed.data.as_ptr().cast(), N)
                 };
-                self.kind = Growable(growable);
+                *self = Self::Growable(growable);
                 Ok(())
             }
-            Growable(ref mut growable) => unsafe { Memory::grow(growable, new_cap) },
+            Self::Growable(growable) => unsafe { Memory::grow(growable, new_cap) },
+            Self::Transitional => unreachable!(),
         }
     }
 }

@@ -10,7 +10,7 @@ use std::io;
 use alloc::{AllocError, Allocator};
 use scopeguard::ScopeGuard;
 
-use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory, SpillableMemoryKind};
+use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 
 // NOTE: this is copypasted from std.
 //
@@ -605,11 +605,7 @@ impl<T, const N: usize, A: Allocator> SpillableVector<T, N, A> {
 
     #[inline]
     pub fn is_spilled(&self) -> bool {
-        use SpillableMemoryKind::*;
-        match self.mem.kind {
-            Growable(GrowableMemory { .. }) => true,
-            Fixed(FixedMemory { .. }) => false,
-        }
+        self.mem.is_spilled()
     }
 }
 
