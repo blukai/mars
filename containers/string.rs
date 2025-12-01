@@ -435,9 +435,11 @@ macro_rules! impl_partial_eq {
 
 impl_partial_eq! { [M1: Memory<u8>, M2: Memory<u8>] String<M1>, String<M2> }
 
+impl_partial_eq! { [M: Memory<u8>] String<M>, str }
 impl_partial_eq! { [M: Memory<u8>] String<M>, &str }
 impl_partial_eq! { [M: Memory<u8>] String<M>, std::string::String }
 
+impl_partial_eq! { [M: Memory<u8>] str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
 
