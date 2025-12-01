@@ -21,7 +21,6 @@ edition = "2024"
 allocator-api2 = { version = "0.3.1" }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion-cycles-per-byte = { version = "0.6.1" }
-either = { version = "1.15.0" }
 # workspace
 alloc = { path = "alloc" }
 arg = { path = "arg" }
@@ -52,7 +51,6 @@ alloc = { workspace = true, optional = true }
 arg = { workspace = true, optional = true }
 bitbuf = { workspace = true, optional = true }
 containers = { workspace = true, optional = true }
-either = { workspace = true, optional = true }
 flag = { workspace = true, optional = true }
 fxhash = { workspace = true, optional = true }
 genvec = { workspace = true, optional = true }
@@ -66,7 +64,6 @@ alloc = ["dep:alloc"]
 arg = ["dep:arg"]
 bitbuf = ["dep:bitbuf"]
 containers = ["dep:containers", "alloc"]
-either = ["dep:either"]
 flag = ["dep:flag"]
 fxhash = ["dep:fxhash"]
 genvec = ["dep:genvec"]

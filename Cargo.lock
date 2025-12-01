@@ -303,7 +303,6 @@ dependencies = [
  "arg",
  "bitbuf",
  "containers",
- "either",
  "flag",
  "fxhash",
  "genvec",

@@ -10,9 +10,6 @@ pub use bitbuf;
 #[cfg(feature = "containers")]
 pub use containers::*;
 
-#[cfg(feature = "either")]
-pub use either;
-
 #[cfg(feature = "flag")]
 pub use flag;
 
