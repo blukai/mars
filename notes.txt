@@ -22,4 +22,4 @@ TODO:
   - arena alloc
   - combine nohash and fxhash into a single hash crate
   - move genvec into collections
-  - introduce arrayvec
+  - default alloc in memory, vector and string to global

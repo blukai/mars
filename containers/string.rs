@@ -1,12 +1,14 @@
 use core::error::Error;
+use core::ffi::CStr;
 use core::fmt::{self, Write as _};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 pub use core::str::Utf8Error;
-use core::{mem, ops, ptr};
+use core::{mem, ops, ptr, slice};
 
-use alloc::{AllocError, Allocator, Global};
+use alloc::{AllocError, Allocator};
 
+use crate::cstring::CString;
 use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 use crate::vector::Vector;
 
@@ -166,7 +168,7 @@ pub struct String<M: Memory<u8>> {
 }
 
 const _: () = {
-    let this = size_of::<String<GrowableMemory<u8, Global>>>();
+    let this = size_of::<String<GrowableMemory<u8, alloc::Global>>>();
     let std = size_of::<std::string::String>();
     assert!(this <= std)
 };
@@ -279,6 +281,60 @@ impl<M: Memory<u8>> String<M> {
     #[inline]
     pub fn clear(&mut self) {
         self.vec.clear()
+    }
+
+    // ----
+    // cstr+cstring
+
+    /// SAFETY: the length must be less than the capacity.
+    ///
+    /// Note that mutable borrow is needed because terminating nul byte `\0` needs to be written
+    /// into spare capacity; with that said - length will not be increased, CStr will be
+    /// constructed with bytes 0..len + 1.
+    #[inline]
+    pub unsafe fn as_c_str_within_cap_unchecked(&mut self) -> &CStr {
+        // SAFETY: by the safety requirements len < cap.
+        //
+        // NOTE: can't rely on Vector::push_within_cap* because that increases length - we don't
+        // what that.
+        unsafe {
+            let ptr = self.vec.as_mut_ptr();
+            let len = self.vec.len();
+            ptr.add(len).write(b'\0');
+            let bytes = slice::from_raw_parts(ptr, len + 1);
+            CStr::from_bytes_with_nul_unchecked(bytes)
+        }
+    }
+
+    #[inline]
+    pub fn as_c_str_within_cap(&mut self) -> Option<&CStr> {
+        if self.len() == self.cap() {
+            return None;
+        }
+        Some(unsafe { self.as_c_str_within_cap_unchecked() })
+    }
+
+    // NOTE: my current use case for this is to use this with temporary allocator as a fallback
+    // when within cap method fails.
+    #[inline]
+    pub fn try_to_c_string_in<W: Memory<u8>>(&self, mem: W) -> Result<CString<W>, AllocError> {
+        let len = self.len();
+        let len_with_nul = len + 1;
+        let mut vec = Vector::new_in(mem).try_with_cap(len_with_nul)?;
+        // SAFETY: just reserved needed capacity ^.
+        unsafe {
+            // TODO: maybe consider making something like Vector::extend_from_slice_copy_unchecked?
+            let ptr = vec.as_mut_ptr();
+            ptr.copy_from_nonoverlapping(self.as_ptr(), len);
+            ptr.add(len).write(b'\0');
+            vec.set_len(len_with_nul);
+
+            // TODO: do i want to keep all of these asserts here?
+            debug_assert_eq!(vec.len(), len_with_nul);
+            debug_assert_eq!(&vec[..len_with_nul - 1], self.as_bytes());
+            debug_assert_eq!(vec[len_with_nul - 1], b'\0');
+        }
+        Ok(CString(vec))
     }
 
     // ----
@@ -531,6 +587,14 @@ mod oom {
         }
 
         // ----
+        // cstr+cstring
+
+        #[inline]
+        pub fn to_c_string_in<W: Memory<u8>>(&self, mem: W) -> CString<W> {
+            this_is_fine(self.try_to_c_string_in(mem))
+        }
+
+        // ----
         // builder-lite
 
         #[inline]
@@ -608,12 +672,39 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    #[test]
+    fn test_as_c_str_within_cap() {
+        {
+            let mut string = String::new_growable_in(alloc::Global).with_str("somen");
+            assert_eq!(string.as_c_str_within_cap(), None);
+        }
+
+        {
+            let mut string = String::new_growable_in(alloc::Global)
+                .with_cap(1000)
+                .with_str("soba");
+            let c_str = string.as_c_str_within_cap().unwrap();
+            assert_eq!(c_str, c"soba");
+            assert_eq!(c_str.to_bytes_with_nul().len(), string.len() + 1);
+        }
+    }
+
+    #[test]
+    fn test_try_to_c_string() {
+        let string = String::new_growable_in(alloc::Global).with_str("udon");
+        let c_string = string
+            .try_to_c_string_in(GrowableMemory::new_in(alloc::Global))
+            .unwrap();
+        assert_eq!(c_string.as_c_str(), c"udon");
+        assert_eq!(c_string.to_bytes_with_nul().len(), string.len() + 1);
+    }
+
     // ----
     // NOTE: tests that start with test_std_ are stolen from std.
 
     #[test]
     fn test_std_push_str() {
-        let mut s = String::new_in(GrowableMemory::new_in(Global));
+        let mut s = String::new_in(GrowableMemory::new_in(alloc::Global));
         s.push_str("");
         assert_eq!(&s[0..], "");
         s.push_str("abc");
@@ -624,7 +715,8 @@ mod tests {
 
     #[test]
     fn test_std_push() {
-        let mut data = String::new_in(GrowableMemory::new_in(Global)).with_str("ประเทศไทย中");
+        let mut data =
+            String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("ประเทศไทย中");
         data.push_char('华');
         data.push_char('b'); // 1 byte
         data.push_char('¢'); // 2 byte
@@ -636,7 +728,7 @@ mod tests {
     #[test]
     fn test_std_pop() {
         let mut data =
-            String::new_in(GrowableMemory::new_in(Global)).with_str("ประเทศไทย中华b¢€𤭢");
+            String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("ประเทศไทย中华b¢€𤭢");
         assert_eq!(data.pop(), Some('𤭢')); // 4 bytes
         assert_eq!(data.pop(), Some('€')); // 3 bytes
         assert_eq!(data.pop(), Some('¢')); // 2 bytes
@@ -647,7 +739,7 @@ mod tests {
 
     #[test]
     fn test_std_clear() {
-        let mut s = String::new_in(GrowableMemory::new_in(Global)).with_str("12345");
+        let mut s = String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("12345");
         s.clear();
         assert_eq!(s.len(), 0);
         assert_eq!(s, "");
@@ -655,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_std_slicing() {
-        let s = String::new_in(GrowableMemory::new_in(Global)).with_str("foobar");
+        let s = String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("foobar");
         assert_eq!("foobar", &s[..]);
         assert_eq!("foo", &s[..3]);
         assert_eq!("bar", &s[3..]);
