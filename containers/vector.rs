@@ -55,22 +55,59 @@ where
     }
 }
 
+pub enum PushErrorKind {
+    OutOfMemory(AllocError),
+}
+
 pub struct PushError<T> {
-    pub error: AllocError,
+    pub kind: PushErrorKind,
     pub value: T,
 }
 
 impl<T> Error for PushError<T> {}
 
-impl<T> fmt::Debug for PushError<T> {
+impl<T> fmt::Display for PushError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.error, f)
+        match self.kind {
+            PushErrorKind::OutOfMemory(ref alloc_error) => fmt::Display::fmt(alloc_error, f),
+        }
     }
 }
 
-impl<T> fmt::Display for PushError<T> {
+// @BlindDerive
+impl<T> fmt::Debug for PushError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.error, f)
+        fmt::Display::fmt(self, f)
+    }
+}
+
+pub enum InsertErrorKind {
+    OutOfBounds { index: usize, len: usize },
+    OutOfMemory(AllocError),
+}
+
+pub struct InsertError<T> {
+    pub kind: InsertErrorKind,
+    pub value: T,
+}
+
+impl<T> Error for InsertError<T> {}
+
+impl<T> fmt::Display for InsertError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            InsertErrorKind::OutOfBounds { index, len } => {
+                f.write_fmt(format_args!("out of bounds (index {index}, len {len})"))
+            }
+            InsertErrorKind::OutOfMemory(ref alloc_error) => fmt::Display::fmt(alloc_error, f),
+        }
+    }
+}
+
+// @BlindDerive
+impl<T> fmt::Debug for InsertError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 
@@ -220,8 +257,11 @@ impl<T, M: Memory<T>> Vector<T, M> {
     //   that will contain value so that the caller can get it back?
     #[inline]
     pub fn try_push(&mut self, value: T) -> Result<(), PushError<T>> {
-        if let Err(error) = self.try_reserve_amortized(1) {
-            return Err(PushError { error, value });
+        if let Err(alloc_error) = self.try_reserve_amortized(1) {
+            return Err(PushError {
+                kind: PushErrorKind::OutOfMemory(alloc_error),
+                value,
+            });
         }
         unsafe { self.push_within_cap_unchecked(value) };
         Ok(())
@@ -238,17 +278,18 @@ impl<T, M: Memory<T>> Vector<T, M> {
         }
     }
 
-    pub fn remove(&mut self, i: usize) -> Option<T> {
+    pub fn remove(&mut self, index: usize) -> Option<T> {
         let len = self.len();
-        if i >= len {
+        // TODO: might want to introduce RemoveError (to be able to indicate oob).
+        if index >= len {
             return None;
         }
         unsafe {
-            let ptr = self.as_mut_ptr().add(i);
+            let ptr = self.as_mut_ptr().add(index);
             // NOTE: now we'll have two values. one here, on the stack, and one in vec.
             let value = ptr::read(ptr);
             // shift everything to fill in that spot.
-            ptr::copy(ptr.add(1), ptr, len - i - 1);
+            ptr::copy(ptr.add(1), ptr, len - index - 1);
             self.len -= 1;
             Some(value)
         }
@@ -267,7 +308,7 @@ impl<T, M: Memory<T>> Vector<T, M> {
         }
     }
 
-    /// removes all items, as no effect on the allocated capacity.
+    /// removes all items, has no effect on the allocated capacity.
     #[inline]
     pub fn clear(&mut self) {
         self.truncate(0);
@@ -307,6 +348,39 @@ impl<T, M: Memory<T>> Vector<T, M> {
                 tail_len: len - end,
             }
         }
+    }
+
+    // TODO: might want to introduce push-like variants of insert
+    //   (insert_within_cap_unchecked, insert_within_cap).
+    #[inline]
+    pub fn try_insert(&mut self, index: usize, value: T) -> Result<(), InsertError<T>> {
+        let len = self.len();
+        if index > self.len() {
+            return Err(InsertError {
+                kind: InsertErrorKind::OutOfBounds { index, len },
+                value,
+            });
+        }
+
+        if let Err(alloc_error) = self.try_reserve_amortized(1) {
+            return Err(InsertError {
+                kind: InsertErrorKind::OutOfMemory(alloc_error),
+                value,
+            });
+        }
+
+        unsafe {
+            let ptr = self.as_mut_ptr().add(index);
+            if index < len {
+                // shift everything to make space
+                // NOTE: this makes the indexth item exist in two places (temporarily).
+                ptr.copy_to(ptr.add(1), len - index);
+            }
+            ptr.write(value);
+            self.len += 1;
+        }
+
+        Ok(())
     }
 
     // ----
@@ -630,8 +704,27 @@ mod oom {
 
         #[inline]
         pub fn push(&mut self, value: T) {
-            if let Err(PushError { error, .. }) = self.try_push(value) {
-                eek(error)
+            match self.try_push(value) {
+                Ok(..) => {}
+                Err(PushError {
+                    kind: PushErrorKind::OutOfMemory(alloc_error),
+                    ..
+                }) => eek(alloc_error),
+            }
+        }
+
+        #[inline]
+        pub fn insert(&mut self, index: usize, value: T) {
+            match self.try_insert(index, value) {
+                Ok(..) => {}
+                Err(InsertError {
+                    kind: InsertErrorKind::OutOfMemory(alloc_error),
+                    ..
+                }) => eek(alloc_error),
+                Err(InsertError {
+                    kind: InsertErrorKind::OutOfBounds { index, len },
+                    ..
+                }) => panic!("out of bounds (index {index}, len {len})"),
             }
         }
 
@@ -752,6 +845,13 @@ mod tests {
         let b = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_iter(a.drain(..));
         assert_eq!(a, []);
         assert_eq!(b, [8, 16]);
+    }
+
+    #[test]
+    fn test_insert() {
+        let mut this = Vector::new_in(GrowableMemory::new_in(alloc::Global)).with_array([16]);
+        this.insert(0, 8);
+        assert_eq!(this, [8, 16]);
     }
 
     #[test]
