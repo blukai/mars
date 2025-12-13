@@ -499,6 +499,22 @@ impl_partial_eq! { [M: Memory<u8>] str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
 impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
 
+impl<M: Memory<u8>> Eq for String<M> {}
+
+impl<M: Memory<u8>> PartialOrd for String<M> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        PartialOrd::partial_cmp(self.as_str(), other.as_str())
+    }
+}
+
+impl<M: Memory<u8>> Ord for String<M> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        Ord::cmp(self.as_str(), other.as_str())
+    }
+}
+
 impl<M: Memory<u8>> Hash for String<M> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
