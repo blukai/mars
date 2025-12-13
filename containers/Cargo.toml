@@ -10,5 +10,12 @@ path = "containers.rs"
 alloc = { workspace = true }
 scopeguard = { workspace = true }
 
+[dev-dependencies]
+criterion = { workspace = true }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_global_oom_handling)'] }
+
+[[bench]]
+name = "sortedvector"
+harness = false

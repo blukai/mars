@@ -1,5 +1,6 @@
 pub mod cstring;
 pub mod memory;
+pub mod sortedvector;
 pub mod string;
 pub mod vector;
 
