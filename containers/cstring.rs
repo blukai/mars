@@ -1,13 +1,13 @@
 use core::ffi::CStr;
 use core::ops;
 
+use crate::array::Array;
 use crate::memory::Memory;
-use crate::vector::Vector;
 
 // NOTE: for now CString is just a newtype on top of vector.
 //   possibly it'll grow into something similar to std::ffi::CString.
 
-pub struct CString<M: Memory<u8>>(pub Vector<u8, M>);
+pub struct CString<M: Memory<u8>>(pub Array<u8, M>);
 
 impl<M: Memory<u8>> CString<M> {
     #[inline]

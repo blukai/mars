@@ -8,9 +8,9 @@ use core::{mem, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
+use crate::array::Array;
 use crate::cstring::CString;
 use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
-use crate::vector::Vector;
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
 ///
@@ -117,7 +117,7 @@ impl fmt::Display for FromFmtError {
 }
 
 pub struct FromUtf8Error<M: Memory<u8>> {
-    bytes: Vector<u8, M>,
+    bytes: Array<u8, M>,
     error: Utf8Error,
 }
 
@@ -128,7 +128,7 @@ impl<M: Memory<u8>> FromUtf8Error<M> {
     }
 
     /// returns the bytes that were attempted to convert to a `String`.
-    pub fn into_bytes(self) -> Vector<u8, M> {
+    pub fn into_bytes(self) -> Array<u8, M> {
         self.bytes
     }
 
@@ -163,9 +163,7 @@ impl<M: Memory<u8>> PartialEq for FromUtf8Error<M> {
 
 impl<M: Memory<u8>> Eq for FromUtf8Error<M> {}
 
-pub struct String<M: Memory<u8>> {
-    vec: Vector<u8, M>,
-}
+pub struct String<M: Memory<u8>>(Array<u8, M>);
 
 const _: () = {
     let this = size_of::<String<GrowableMemory<u8, alloc::Global>>>();
@@ -176,24 +174,22 @@ const _: () = {
 impl<M: Memory<u8>> String<M> {
     #[inline]
     pub fn new_in(mem: M) -> Self {
-        Self {
-            vec: Vector::new_in(mem),
-        }
+        Self(Array::new_in(mem))
     }
 
     #[inline]
     pub fn memory(&self) -> &M {
-        &self.vec.memory()
+        &self.0.memory()
     }
 
     #[inline]
     pub fn cap(&self) -> usize {
-        self.vec.cap()
+        self.0.cap()
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.vec.len()
+        self.0.len()
     }
 
     /// SAFETY: new_len must be less than or equal to capacity.
@@ -201,36 +197,36 @@ impl<M: Memory<u8>> String<M> {
     #[inline]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(new_len <= self.cap());
-        unsafe { self.vec.set_len(new_len) };
+        unsafe { self.0.set_len(new_len) };
     }
 
     #[inline]
     pub fn as_str(&self) -> &str {
         // SAFETY: contents are stipulated to be valid utf-8, invalid contents are an error at
         // construction.
-        unsafe { str::from_utf8_unchecked(self.vec.as_slice()) }
+        unsafe { str::from_utf8_unchecked(self.0.as_slice()) }
     }
 
     #[inline]
     pub fn as_mut_str(&mut self) -> &mut str {
         // SAFETY: contents are stipulated to be valid UTF-8, invalid contents are an error at
         // construction.
-        unsafe { str::from_utf8_unchecked_mut(self.vec.as_mut_slice()) }
+        unsafe { str::from_utf8_unchecked_mut(self.0.as_mut_slice()) }
     }
 
     #[inline]
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
-        self.vec.try_reserve_amortized(additional)
+        self.0.try_reserve_amortized(additional)
     }
 
     #[inline]
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
-        self.vec.try_reserve_exact(additional)
+        self.0.try_reserve_exact(additional)
     }
 
     #[inline]
     pub fn try_push_str(&mut self, s: &str) -> Result<(), AllocError> {
-        self.vec.try_extend_from_slice_copy(s.as_bytes())
+        self.0.try_extend_from_slice_copy(s.as_bytes())
     }
 
     #[inline]
@@ -241,8 +237,8 @@ impl<M: Memory<u8>> String<M> {
         self.try_reserve_amortized(char_len)?;
         // SAFETY: just reserved capacity for at least the length needed to encode `ch`.
         unsafe {
-            c.encode_utf8(mem::transmute(self.vec.spare_cap_mut()));
-            self.vec.set_len(len + char_len);
+            c.encode_utf8(mem::transmute(self.0.spare_cap_mut()));
+            self.0.set_len(len + char_len);
         }
         Ok(())
     }
@@ -250,7 +246,7 @@ impl<M: Memory<u8>> String<M> {
     pub fn pop(&mut self) -> Option<char> {
         let c = self.chars().rev().next()?;
         let new_len = self.len() - c.len_utf8();
-        unsafe { self.vec.set_len(new_len) };
+        unsafe { self.0.set_len(new_len) };
         Some(c)
     }
 
@@ -270,7 +266,7 @@ impl<M: Memory<u8>> String<M> {
     pub fn truncate(&mut self, new_len: usize) {
         if new_len <= self.len() {
             assert!(self.is_char_boundary(new_len));
-            self.vec.truncate(new_len)
+            self.0.truncate(new_len)
         }
     }
 
@@ -280,7 +276,7 @@ impl<M: Memory<u8>> String<M> {
     /// touch its capacity.
     #[inline]
     pub fn clear(&mut self) {
-        self.vec.clear()
+        self.0.clear()
     }
 
     // ----
@@ -295,11 +291,11 @@ impl<M: Memory<u8>> String<M> {
     pub unsafe fn as_c_str_within_cap_unchecked(&mut self) -> &CStr {
         // SAFETY: by the safety requirements len < cap.
         //
-        // NOTE: can't rely on Vector::push_within_cap* because that increases length - we don't
+        // NOTE: can't rely on Array::push_within_cap* because that increases length - we don't
         // what that.
         unsafe {
-            let ptr = self.vec.as_mut_ptr();
-            let len = self.vec.len();
+            let ptr = self.0.as_mut_ptr();
+            let len = self.0.len();
             ptr.add(len).write(b'\0');
             let bytes = slice::from_raw_parts(ptr, len + 1);
             CStr::from_bytes_with_nul_unchecked(bytes)
@@ -320,36 +316,36 @@ impl<M: Memory<u8>> String<M> {
     pub fn try_to_c_string_in<W: Memory<u8>>(&self, mem: W) -> Result<CString<W>, AllocError> {
         let len = self.len();
         let len_with_nul = len + 1;
-        let mut vec = Vector::new_in(mem).try_with_cap(len_with_nul)?;
+        let mut data = Array::new_in(mem).try_with_cap(len_with_nul)?;
         // SAFETY: just reserved needed capacity ^.
         unsafe {
-            // TODO: maybe consider making something like Vector::extend_from_slice_copy_unchecked?
-            let ptr = vec.as_mut_ptr();
+            // TODO: maybe consider making something like Array::extend_from_slice_copy_unchecked?
+            let ptr = data.as_mut_ptr();
             ptr.copy_from_nonoverlapping(self.as_ptr(), len);
             ptr.add(len).write(b'\0');
-            vec.set_len(len_with_nul);
+            data.set_len(len_with_nul);
 
             // TODO: do i want to keep all of these asserts here?
-            debug_assert_eq!(vec.len(), len_with_nul);
-            debug_assert_eq!(&vec[..len_with_nul - 1], self.as_bytes());
-            debug_assert_eq!(vec[len_with_nul - 1], b'\0');
+            debug_assert_eq!(data.len(), len_with_nul);
+            debug_assert_eq!(&data[..len_with_nul - 1], self.as_bytes());
+            debug_assert_eq!(data[len_with_nul - 1], b'\0');
         }
-        Ok(CString(vec))
+        Ok(CString(data))
     }
 
     // ----
     // construct-from
 
     #[inline]
-    pub const unsafe fn from_utf8_unchecked(vec: Vector<u8, M>) -> Self {
-        Self { vec }
+    pub const unsafe fn from_utf8_unchecked(data: Array<u8, M>) -> Self {
+        Self(data)
     }
 
     #[inline]
-    pub fn try_from_utf8(vec: Vector<u8, M>) -> Result<Self, FromUtf8Error<M>> {
-        match core::str::from_utf8(vec.as_slice()) {
-            Ok(_) => Ok(unsafe { Self::from_utf8_unchecked(vec) }),
-            Err(error) => Err(FromUtf8Error { bytes: vec, error }),
+    pub fn try_from_utf8(data: Array<u8, M>) -> Result<Self, FromUtf8Error<M>> {
+        match core::str::from_utf8(data.as_slice()) {
+            Ok(_) => Ok(unsafe { Self::from_utf8_unchecked(data) }),
+            Err(error) => Err(FromUtf8Error { bytes: data, error }),
         }
     }
 
@@ -569,7 +565,7 @@ impl<const N: usize, A: Allocator> SpillableString<N, A> {
 
     #[inline]
     pub fn is_spilled(&self) -> bool {
-        self.vec.is_spilled()
+        self.0.is_spilled()
     }
 }
 
@@ -643,13 +639,13 @@ mod oom {
 
     impl<A: Allocator + Clone> Clone for GrowableString<A> {
         fn clone(&self) -> Self {
-            Self::new_growable_in(self.vec.memory().allocator().clone()).with_str(self)
+            Self::new_growable_in(self.0.memory().allocator().clone()).with_str(self)
         }
     }
 
     impl<const N: usize, A: Allocator + Clone> Clone for SpillableString<N, A> {
         fn clone(&self) -> Self {
-            Self::new_spillable_in(self.vec.memory().allocator().clone()).with_str(self)
+            Self::new_spillable_in(self.0.memory().allocator().clone()).with_str(self)
         }
     }
 }

@@ -17,5 +17,5 @@ criterion = { workspace = true }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_global_oom_handling)'] }
 
 [[bench]]
-name = "sortedvector"
+name = "sortedarray"
 harness = false

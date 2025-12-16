@@ -2,8 +2,8 @@ use core::fmt;
 
 use alloc::{AllocError, Allocator};
 
+use crate::array::{Array, InsertError, InsertErrorKind};
 use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
-use crate::vector::{InsertError, InsertErrorKind, Vector};
 
 // NOTE: this can be used instead of hashmap.
 //   good for small number of pairs.
@@ -11,19 +11,19 @@ use crate::vector::{InsertError, InsertErrorKind, Vector};
 //   - `insert` is o(n);
 //   - `get` performs binary search.
 
-// NOTE: i am too lazy to duplicate majority of Vector's methods in impls.
+// NOTE: i am too lazy to duplicate majority of Array's methods in impls.
 //   feel free to use any non-mutating method of the underlying vector (0);
 //   but mutating it is illegal.
 
 // ----
 // sorted vector map
 
-pub struct SortedVectorMap<K, V, M: Memory<(K, V)>>(pub Vector<(K, V), M>);
+pub struct SortedArrayMap<K, V, M: Memory<(K, V)>>(pub Array<(K, V), M>);
 
-impl<K, V, M: Memory<(K, V)>> SortedVectorMap<K, V, M> {
+impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
     #[inline]
     pub fn new_in(mem: M) -> Self {
-        Self(Vector::new_in(mem))
+        Self(Array::new_in(mem))
     }
 
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, InsertError<(K, V)>>
@@ -95,14 +95,14 @@ impl<K, V, M: Memory<(K, V)>> SortedVectorMap<K, V, M> {
     }
 }
 
-impl<K, V, M: Memory<(K, V)> + Default> Default for SortedVectorMap<K, V, M> {
+impl<K, V, M: Memory<(K, V)> + Default> Default for SortedArrayMap<K, V, M> {
     #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
     }
 }
 
-impl<K: fmt::Debug, V: fmt::Debug, M: Memory<(K, V)>> fmt::Debug for SortedVectorMap<K, V, M> {
+impl<K: fmt::Debug, V: fmt::Debug, M: Memory<(K, V)>> fmt::Debug for SortedArrayMap<K, V, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.0.as_slice(), f)
     }
@@ -112,36 +112,36 @@ impl<K: fmt::Debug, V: fmt::Debug, M: Memory<(K, V)>> fmt::Debug for SortedVecto
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableSortedVectorMap<K, V, A: Allocator> =
-    SortedVectorMap<K, V, GrowableMemory<(K, V), A>>;
+pub type GrowableSortedArrayMap<K, V, A: Allocator> =
+    SortedArrayMap<K, V, GrowableMemory<(K, V), A>>;
 
-impl<K, V, A: Allocator> GrowableSortedVectorMap<K, V, A> {
+impl<K, V, A: Allocator> GrowableSortedArrayMap<K, V, A> {
     #[inline]
     pub fn new_growable_in(alloc: A) -> Self {
         Self::new_in(GrowableMemory::new_in(alloc))
     }
 }
 
-pub type FixedSortedVectorMap<K, V, const N: usize> = SortedVectorMap<K, V, FixedMemory<(K, V), N>>;
+pub type FixedSortedArrayMap<K, V, const N: usize> = SortedArrayMap<K, V, FixedMemory<(K, V), N>>;
 
-impl<K, V, const N: usize> FixedSortedVectorMap<K, V, N> {
+impl<K, V, const N: usize> FixedSortedArrayMap<K, V, N> {
     #[inline]
     pub fn new_fixed() -> Self {
         Self::new_in(FixedMemory::default())
     }
 }
 
-impl<K: Clone, V: Clone, const N: usize> Clone for FixedSortedVectorMap<K, V, N> {
+impl<K: Clone, V: Clone, const N: usize> Clone for FixedSortedArrayMap<K, V, N> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
 #[expect(type_alias_bounds)]
-pub type SpillableSortedVectorMap<K, V, const N: usize, A: Allocator> =
-    SortedVectorMap<K, V, SpillableMemory<(K, V), N, A>>;
+pub type SpillableSortedArrayMap<K, V, const N: usize, A: Allocator> =
+    SortedArrayMap<K, V, SpillableMemory<(K, V), N, A>>;
 
-impl<K, V, const N: usize, A: Allocator> SpillableSortedVectorMap<K, V, N, A> {
+impl<K, V, const N: usize, A: Allocator> SpillableSortedArrayMap<K, V, N, A> {
     #[inline]
     pub fn new_spillable_in(alloc: A) -> Self {
         Self::new_in(SpillableMemory::new_in(alloc))
@@ -151,12 +151,12 @@ impl<K, V, const N: usize, A: Allocator> SpillableSortedVectorMap<K, V, N, A> {
 // ----
 // sorted vector set
 
-pub struct SortedVectorSet<T, M: Memory<T>>(pub Vector<T, M>);
+pub struct SortedArraySet<T, M: Memory<T>>(pub Array<T, M>);
 
-impl<T, M: Memory<T>> SortedVectorSet<T, M> {
+impl<T, M: Memory<T>> SortedArraySet<T, M> {
     #[inline]
     pub fn new_in(mem: M) -> Self {
-        Self(Vector::new_in(mem))
+        Self(Array::new_in(mem))
     }
 
     pub fn try_insert(&mut self, value: T) -> Result<Option<T>, InsertError<T>>
@@ -205,14 +205,14 @@ impl<T, M: Memory<T>> SortedVectorSet<T, M> {
     }
 }
 
-impl<T, M: Memory<T> + Default> Default for SortedVectorSet<T, M> {
+impl<T, M: Memory<T> + Default> Default for SortedArraySet<T, M> {
     #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
     }
 }
 
-impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for SortedVectorSet<T, M> {
+impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for SortedArraySet<T, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.0.as_slice(), f)
     }
@@ -222,35 +222,35 @@ impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for SortedVectorSet<T, M> {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableSortedVectorSet<T, A: Allocator> = SortedVectorSet<T, GrowableMemory<T, A>>;
+pub type GrowableSortedArraySet<T, A: Allocator> = SortedArraySet<T, GrowableMemory<T, A>>;
 
-impl<T, A: Allocator> GrowableSortedVectorSet<T, A> {
+impl<T, A: Allocator> GrowableSortedArraySet<T, A> {
     #[inline]
     pub fn new_growable_in(alloc: A) -> Self {
         Self::new_in(GrowableMemory::new_in(alloc))
     }
 }
 
-pub type FixedSortedVectorSet<T, const N: usize> = SortedVectorSet<T, FixedMemory<T, N>>;
+pub type FixedSortedArraySet<T, const N: usize> = SortedArraySet<T, FixedMemory<T, N>>;
 
-impl<T, const N: usize> FixedSortedVectorSet<T, N> {
+impl<T, const N: usize> FixedSortedArraySet<T, N> {
     #[inline]
     pub fn new_fixed() -> Self {
         Self::new_in(FixedMemory::default())
     }
 }
 
-impl<T: Clone, const N: usize> Clone for FixedSortedVectorSet<T, N> {
+impl<T: Clone, const N: usize> Clone for FixedSortedArraySet<T, N> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
 #[expect(type_alias_bounds)]
-pub type SpillableSortedVectorSet<T, const N: usize, A: Allocator> =
-    SortedVectorSet<T, SpillableMemory<T, N, A>>;
+pub type SpillableSortedArraySet<T, const N: usize, A: Allocator> =
+    SortedArraySet<T, SpillableMemory<T, N, A>>;
 
-impl<T, const N: usize, A: Allocator> SpillableSortedVectorSet<T, N, A> {
+impl<T, const N: usize, A: Allocator> SpillableSortedArraySet<T, N, A> {
     #[inline]
     pub fn new_spillable_in(alloc: A) -> Self {
         Self::new_in(SpillableMemory::new_in(alloc))
@@ -265,7 +265,7 @@ mod oom {
 
     use super::*;
 
-    impl<K, V, M: Memory<(K, V)>> SortedVectorMap<K, V, M> {
+    impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
         pub fn insert(&mut self, key: K, value: V)
         where
             K: Ord,
@@ -306,7 +306,7 @@ mod oom {
         }
     }
 
-    impl<T, M: Memory<T>> SortedVectorSet<T, M> {
+    impl<T, M: Memory<T>> SortedArraySet<T, M> {
         pub fn insert(&mut self, value: T)
         where
             T: Ord,
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_map_insert() {
-        let mut this = SortedVectorMap::<u32, (), _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this = SortedArrayMap::<u32, (), _>::new_in(GrowableMemory::new_in(alloc::Global));
         this.insert(42, ());
         this.insert(64, ());
         this.insert(64, ());
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn test_map_get() {
         let mut this =
-            SortedVectorMap::<u32, &'static str, _>::new_in(GrowableMemory::new_in(alloc::Global));
+            SortedArrayMap::<u32, &'static str, _>::new_in(GrowableMemory::new_in(alloc::Global));
         this.insert(0, "zero");
         this.insert(8, "hachi");
         this.insert(16, "juuroku");
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_set_insert() {
-        let mut this = SortedVectorSet::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this = SortedArraySet::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
         this.insert(64);
         this.insert(42);
         this.insert(27);
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn test_set_contains() {
         let mut this =
-            SortedVectorSet::<&'static str, _>::new_in(GrowableMemory::new_in(alloc::Global));
+            SortedArraySet::<&'static str, _>::new_in(GrowableMemory::new_in(alloc::Global));
         this.insert("zero");
         this.insert("hachi");
         this.insert("juuroku");

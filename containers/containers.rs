@@ -1,8 +1,8 @@
+pub mod array;
 pub mod cstring;
 pub mod memory;
-pub mod sortedvector;
+pub mod sortedarray;
 pub mod string;
-pub mod vector;
 
 #[cfg(test)]
 pub(crate) mod testutil;
