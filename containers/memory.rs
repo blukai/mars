@@ -13,6 +13,8 @@ pub unsafe trait Memory<T> {
 
 // ----
 // growable
+//
+// TODO: consider renaming GrowableMemory into ReallocableMemory or something in that direction?
 
 pub struct GrowableMemory<T, A: Allocator> {
     ptr: NonNull<T>,
@@ -127,6 +129,10 @@ impl<T, A: Allocator + Default> Default for GrowableMemory<T, A> {
 
 // ----
 // fixed
+//
+// TODO: consider renaming FixedMemory to StackMemory or something alike.
+//   that is because it is not unreasonable to think of fixed size heap allocations.
+//   the word "fixed" doesn't fully correctly convey the meaning.
 
 #[repr(transparent)]
 pub struct FixedMemory<T, const N: usize> {
@@ -173,7 +179,7 @@ pub enum SpillableMemory<T, const N: usize, A: Allocator> {
     Growable(GrowableMemory<T, A>),
     // NOTE: Transitional variant is used as a temp value while transitioning between
     // fixed<->growable state.
-    // maybe there's a better way?
+    //   maybe there's a better way?
     Transitional,
 }
 

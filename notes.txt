@@ -1,25 +1,28 @@
+----
 @BlindDerive
-----
-when you derive a trait (e.g., `Clone`) on a generic type, the derive just
-assumes that all the generic parameters must be `Clone`. ofthen that is a valid
-idea, but sometimes not.
-see:
-- https://smallcultfollowing.com/babysteps/blog/2022/04/12/implied-bounds-and-perfect-derive/.
-- https://rgbcu.be/blog/derive-broken
+  when you derive a trait (e.g., `Clone`) on a generic type, the derive just
+  assumes that all the generic parameters must be `Clone`. ofthen that is a valid
+  idea, but sometimes not.
+  see:
+  - https://smallcultfollowing.com/babysteps/blog/2022/04/12/implied-bounds-and-perfect-derive/.
+  - https://rgbcu.be/blog/derive-broken
 
+----
 @TryCloneIn
-----
-there's no checked (/ not oomable) standard cloning mechanism. see:
-- https://github.com/rust-lang/wg-allocators/issues/15#issuecomment-542885461
+  there's no checked (/ not oomable) standard cloning mechanism. see:
+  - https://github.com/rust-lang/wg-allocators/issues/15#issuecomment-542885461
 
+----
 TODO:
   - simple file watcher. i don't like notify crate. i don't like its dependency
     on walkdir. i'm not sure i like that it handles crate creation internally
     without giving any control over it.
     maybe see https://github.com/focus-editor/focus/blob/fefbb480e593c3aef442d4f4851ef1175a349626/modules/File_Watcher/module.jai
-  - improve rangealloc
-  - genvec must use vec instead of std::vec::Vec
+  - improve rangealloc (see TODOs all around it)
+  - genvec must be backed by GrowableArray instead of std::vec::Vec
   - arena alloc
   - combine nohash and fxhash into a single hash crate
   - move genvec into collections
-  - default alloc in memory, vector and string to global
+
+----
+  - good overview of different array variants - https://azmr.uk/dyn/
