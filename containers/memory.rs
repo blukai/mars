@@ -15,6 +15,7 @@ pub unsafe trait Memory<T> {
 // growable
 //
 // TODO: consider renaming GrowableMemory into ReallocableMemory or something in that direction?
+//   but not HeapMemory because its Allocator may not necessarily be baked by heap.
 
 pub struct GrowableMemory<T, A: Allocator> {
     ptr: NonNull<T>,
@@ -133,6 +134,18 @@ impl<T, A: Allocator + Default> Default for GrowableMemory<T, A> {
 // TODO: consider renaming FixedMemory to StackMemory or something alike.
 //   that is because it is not unreasonable to think of fixed size heap allocations.
 //   the word "fixed" doesn't fully correctly convey the meaning.
+//
+//   ----
+//   maybe it would make sense to rename what is currently called FixedMemory into StackMemory, and
+//   introduce another variant of memory called FixedMemory;
+//   which would not be stack-allocated but heap;
+//   which would not be reallocable/resizable, it'll be immutable.
+//   i feel like this would be good for communicating intents clearly.
+//
+//   ----
+//   it might be reasonable to also think that non-reallocable (new fixed) memory may need to be
+//   transitioned into growable state, some kind of explicit copy-on-write must happen or
+//   something.
 
 #[repr(transparent)]
 pub struct FixedMemory<T, const N: usize> {

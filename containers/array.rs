@@ -12,6 +12,10 @@ use scopeguard::ScopeGuard;
 
 use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 
+// TODO: think about how to do better job at growing.
+//   maybe with some kind of GrowthStrategy?
+//   grow_amortized and grow_exact - these aren't nice nor not even good enough.
+
 // NOTE: this is copypasted from std.
 //
 // Tiny Vecs are dumb. Skip to:
