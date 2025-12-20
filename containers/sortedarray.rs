@@ -1,3 +1,4 @@
+use core::cmp::Ordering;
 use core::fmt;
 
 use alloc::{AllocError, Allocator};
@@ -15,6 +16,18 @@ use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 //   feel free to use any non-mutating method of the underlying vector (0);
 //   but mutating it is illegal.
 
+/// you may wish to implement SortedArrayCompare if comparison logic that your SortedArray* type
+/// needs is incompatible with Ord that you may need for other purposes..
+pub trait SortedArrayCompare {
+    fn cmp(&self, other: &Self) -> Ordering;
+}
+
+impl<T: Ord> SortedArrayCompare for T {
+    fn cmp(&self, other: &Self) -> Ordering {
+        Ord::cmp(self, other)
+    }
+}
+
 // ----
 // sorted vector map
 
@@ -25,15 +38,16 @@ impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
     pub fn new_in(mem: M) -> Self {
         Self(Array::new_in(mem))
     }
+}
 
-    pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, InsertError<(K, V)>>
-    where
-        K: Ord,
-    {
-        let index = self.0.partition_point(|(k, _)| k < &key);
+impl<K: SortedArrayCompare, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
+    pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, InsertError<(K, V)>> {
+        let index = self
+            .0
+            .partition_point(|(k, _)| SortedArrayCompare::cmp(k, &key) == Ordering::Less);
         match self.0.get(index) {
             // TODO: does it matter which value i return?
-            Some((k, ..)) if k == &key => Ok(Some(value)),
+            Some((k, ..)) if SortedArrayCompare::cmp(k, &key) == Ordering::Equal => Ok(Some(value)),
             _ => self.0.try_insert(index, (key, value)).map(|_| None),
         }
     }
@@ -44,10 +58,7 @@ impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
     pub fn try_extend_from_iter<I: Iterator<Item = (K, V)>>(
         &mut self,
         iter: I,
-    ) -> Result<(), AllocError>
-    where
-        K: Ord,
-    {
+    ) -> Result<(), AllocError> {
         self.0.try_extend_from_iter(iter)?;
         self.0.sort_by(|(a, _), (b, _)| a.cmp(b));
         Ok(())
@@ -56,10 +67,10 @@ impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
     // ----
     // builder-lite with
 
-    pub fn try_with_iter<I: Iterator<Item = (K, V)>>(mut self, iter: I) -> Result<Self, AllocError>
-    where
-        K: Ord,
-    {
+    pub fn try_with_iter<I: Iterator<Item = (K, V)>>(
+        mut self,
+        iter: I,
+    ) -> Result<Self, AllocError> {
         self.try_extend_from_iter(iter)?;
         Ok(self)
     }
@@ -67,27 +78,18 @@ impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
     // ----
     // vector deviations
 
-    pub fn contains(&self, key: &K) -> bool
-    where
-        K: Ord,
-    {
+    pub fn contains(&self, key: &K) -> bool {
         self.0.binary_search_by(|(k, _)| k.cmp(key)).is_ok()
     }
 
-    pub fn get(&self, key: &K) -> Option<&V>
-    where
-        K: Ord,
-    {
+    pub fn get(&self, key: &K) -> Option<&V> {
         self.0
             .binary_search_by(|(k, _)| k.cmp(key))
             .ok()
             .map(|found| unsafe { &self.0.get_unchecked(found).1 })
     }
 
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V>
-    where
-        K: Ord,
-    {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         self.0
             .binary_search_by(|(k, _)| k.cmp(key))
             .ok()
@@ -158,15 +160,16 @@ impl<T, M: Memory<T>> SortedArraySet<T, M> {
     pub fn new_in(mem: M) -> Self {
         Self(Array::new_in(mem))
     }
+}
 
-    pub fn try_insert(&mut self, value: T) -> Result<Option<T>, InsertError<T>>
-    where
-        T: Ord,
-    {
-        let index = self.0.partition_point(|v| v < &value);
+impl<T: SortedArrayCompare, M: Memory<T>> SortedArraySet<T, M> {
+    pub fn try_insert(&mut self, value: T) -> Result<Option<T>, InsertError<T>> {
+        let index = self
+            .0
+            .partition_point(|v| SortedArrayCompare::cmp(v, &value) == Ordering::Less);
         match self.0.get(index) {
             // TODO: does it matter which value i return?
-            Some(v) if v == &value => Ok(Some(value)),
+            Some(v) if SortedArrayCompare::cmp(v, &value) == Ordering::Equal => Ok(Some(value)),
             _ => self.0.try_insert(index, value).map(|_| None),
         }
     }
@@ -174,10 +177,10 @@ impl<T, M: Memory<T>> SortedArraySet<T, M> {
     // ----
     // extend from
 
-    pub fn try_extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) -> Result<(), AllocError>
-    where
-        T: Ord,
-    {
+    pub fn try_extend_from_iter<I: Iterator<Item = T>>(
+        &mut self,
+        iter: I,
+    ) -> Result<(), AllocError> {
         self.0.try_extend_from_iter(iter)?;
         self.0.sort_by(|a, b| a.cmp(b));
         Ok(())
@@ -186,10 +189,7 @@ impl<T, M: Memory<T>> SortedArraySet<T, M> {
     // ----
     // builder-lite with
 
-    pub fn try_with_iter<I: Iterator<Item = T>>(mut self, iter: I) -> Result<Self, AllocError>
-    where
-        T: Ord,
-    {
+    pub fn try_with_iter<I: Iterator<Item = T>>(mut self, iter: I) -> Result<Self, AllocError> {
         self.try_extend_from_iter(iter)?;
         Ok(self)
     }
@@ -197,10 +197,7 @@ impl<T, M: Memory<T>> SortedArraySet<T, M> {
     // ----
     // vector deviations
 
-    pub fn contains(&self, value: &T) -> bool
-    where
-        T: Ord,
-    {
+    pub fn contains(&self, value: &T) -> bool {
         self.0.binary_search_by(|v| v.cmp(value)).is_ok()
     }
 }
@@ -265,11 +262,8 @@ mod oom {
 
     use super::*;
 
-    impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
-        pub fn insert(&mut self, key: K, value: V)
-        where
-            K: Ord,
-        {
+    impl<K: SortedArrayCompare, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
+        pub fn insert(&mut self, key: K, value: V) {
             match self.try_insert(key, value) {
                 Ok(..) => {}
                 Err(InsertError {
@@ -287,10 +281,7 @@ mod oom {
         // extend from
 
         #[inline]
-        pub fn extend_from_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I)
-        where
-            K: Ord,
-        {
+        pub fn extend_from_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
         }
 
@@ -298,19 +289,13 @@ mod oom {
         // builder-lite with
 
         #[inline]
-        pub fn with_iter<I: Iterator<Item = (K, V)>>(self, iter: I) -> Self
-        where
-            K: Ord,
-        {
+        pub fn with_iter<I: Iterator<Item = (K, V)>>(self, iter: I) -> Self {
             this_is_fine(self.try_with_iter(iter))
         }
     }
 
-    impl<T, M: Memory<T>> SortedArraySet<T, M> {
-        pub fn insert(&mut self, value: T)
-        where
-            T: Ord,
-        {
+    impl<T: SortedArrayCompare, M: Memory<T>> SortedArraySet<T, M> {
+        pub fn insert(&mut self, value: T) {
             match self.try_insert(value) {
                 Ok(..) => {}
                 Err(InsertError {
@@ -328,10 +313,7 @@ mod oom {
         // extend from
 
         #[inline]
-        pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I)
-        where
-            T: Ord,
-        {
+        pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
         }
 
@@ -339,10 +321,7 @@ mod oom {
         // builder-lite with
 
         #[inline]
-        pub fn with_iter<I: Iterator<Item = T>>(self, iter: I) -> Self
-        where
-            T: Ord,
-        {
+        pub fn with_iter<I: Iterator<Item = T>>(self, iter: I) -> Self {
             this_is_fine(self.try_with_iter(iter))
         }
     }
