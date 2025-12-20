@@ -7,12 +7,10 @@ use std::ffi::{OsStr, OsString};
 use std::io::{self, Write as _};
 use std::ops::{ControlFlow, Range};
 use std::path::PathBuf;
-use std::{array, error, fmt, mem, process, str};
+use std::{cmp, error, fmt, process, str};
 
-// NOTE: who would want more?
-const FLAGS_CAP: usize = 1 << 10;
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(size_of::<Flag<'_, '_>>() == 48);
+use alloc::Allocator;
+use containers::sortedarray::{SortedArrayCompare, SpillableSortedArraySet};
 
 pub type ValueError = Box<dyn std::error::Error>;
 
@@ -226,6 +224,12 @@ struct Flag<'a, 's> {
     usage: &'a str,
 }
 
+impl<'a, 's> SortedArrayCompare for Flag<'a, 's> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        Ord::cmp(self.name, other.name)
+    }
+}
+
 fn print_flags<'a, 's, W: io::Write>(w: &mut W, flags: &[Flag<'a, 's>]) -> io::Result<()> {
     let mut width = 0;
     for Flag { name, .. } in flags {
@@ -339,20 +343,10 @@ where
     Ok(ControlFlow::Continue(()))
 }
 
-pub struct FlagSet<'a, 's> {
-    flags: [Option<Flag<'a, 's>>; FLAGS_CAP],
-    flags_len: usize,
+#[derive(Default)]
+pub struct FlagSet<'a, 's, const N: usize = 32, A: Allocator = alloc::Global> {
+    flags: SpillableSortedArraySet<Flag<'a, 's>, N, A>,
     help: Option<&'a str>,
-}
-
-impl<'a, 's> Default for FlagSet<'a, 's> {
-    fn default() -> Self {
-        Self {
-            flags: array::from_fn(|_| None),
-            flags_len: 0,
-            help: None,
-        }
-    }
 }
 
 impl<'a, 's> FlagSet<'a, 's> {
@@ -361,16 +355,10 @@ impl<'a, 's> FlagSet<'a, 's> {
         assert!(!name.starts_with('-'), "flag {name} starts with -");
         assert!(!name.contains('='), "flag {name} contains =");
 
-        let exists = self
-            .flags
-            .iter()
-            .map_while(Option::as_ref)
-            .find(|f| f.name == name)
-            .is_some();
+        let exists = self.flags.0.iter().find(|f| f.name == name).is_some();
         assert!(!exists, "flag redefined: {name}");
 
-        self.flags[self.flags_len] = Some(Flag { name, value, usage });
-        self.flags_len += 1;
+        self.flags.insert(Flag { name, value, usage });
         self
     }
 
@@ -383,14 +371,6 @@ impl<'a, 's> FlagSet<'a, 's> {
     where
         I: Iterator<Item = Result<Cow<'s, str>, ParseError>>,
     {
-        let flags = {
-            // NOTE: rust does niche optimization for Option enum.
-            //   it is safe to transmute Option<T> as long as size of Option<T> == size of T
-            //   (considering that you are sure that options are Some, and here we are sure of that!).
-            const _: () = assert!(size_of::<Option<Flag<'_, '_>>>() == size_of::<Flag<'_, '_>>());
-            unsafe { mem::transmute::<_, &mut [Flag<'a, 's>]>(&mut self.flags[..self.flags_len]) }
-        };
-
         // NOTE: unlike go i allow help to be requested only via first argument.
         //
         //   that is because i want to be able to print default values for flags in the help
@@ -415,7 +395,7 @@ impl<'a, 's> FlagSet<'a, 's> {
                     stdout.write(help.as_bytes()).unwrap();
                 } else {
                     writeln!(&mut stdout as &mut dyn io::Write, "flags:").unwrap();
-                    print_flags(&mut io::stdout(), flags).unwrap();
+                    print_flags(&mut io::stdout(), &self.flags.0).unwrap();
                 }
                 process::exit(1);
             }
@@ -427,7 +407,7 @@ impl<'a, 's> FlagSet<'a, 's> {
         }
 
         loop {
-            match parse_arg(&mut args, flags)? {
+            match parse_arg(&mut args, &mut self.flags.0)? {
                 ControlFlow::Continue(_) => {}
                 ControlFlow::Break(_) => break,
             }
