@@ -4,13 +4,15 @@
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::io::{self, Write as _};
 use std::ops::{ControlFlow, Range};
 use std::path::PathBuf;
-use std::{cmp, error, fmt, process, str};
+use std::{cmp, error, fmt, io, str};
 
 use alloc::Allocator;
 use containers::sortedarray::{SortedArrayCompare, SpillableSortedArraySet};
+
+// NOTE: this is tsoding's idea, see https://github.com/tsoding/flag.h.
+pub const IGNORE_MARKER: char = '/';
 
 pub type ValueError = Box<dyn std::error::Error>;
 
@@ -186,42 +188,84 @@ fn test_is_none() {
 }
 
 #[derive(Debug)]
-pub enum ParseError {
-    InvalidArg(OsString),
-    InvalidSyntax { arg: String },
-    UnknownFlag { name: String },
-    MissingValue { flag_name: String },
-    CouldNotAssignValue { flag_name: String, err: ValueError },
-    HelpNotFirst,
-    CouldNotPrintHelp(io::Error),
+pub enum ArgKind<'s> {
+    OsStr(&'s OsStr),
+    OsString(OsString),
 }
 
-impl error::Error for ParseError {}
+impl<'s> ArgKind<'s> {
+    pub fn as_os_str(&self) -> &OsStr {
+        match self {
+            Self::OsStr(os_str) => os_str,
+            Self::OsString(os_string) => os_string.as_os_str(),
+        }
+    }
+
+    pub fn into_cow_str(self) -> Result<Cow<'s, str>, Self> {
+        match self {
+            Self::OsStr(os_str) => <&'s str>::try_from(os_str)
+                .map(Cow::Borrowed)
+                .map_err(|_| self),
+            Self::OsString(os_string) => os_string
+                .into_string()
+                .map(Cow::Owned)
+                .map_err(Self::OsString),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseBreak<'s> {
+    Help,
+    NonFlag(ArgKind<'s>),
+    // the "--" terminator. see guideline 10 of
+    // https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html
+    Terminator,
+}
+
+#[derive(Debug)]
+pub enum ParseError<'a, 's> {
+    InvalidArg(ArgKind<'s>),
+    InvalidSyntax { arg: Cow<'s, str> },
+    UnknownFlag { flag_name: Cow<'s, str> },
+    MissingValue { flag_name: &'a str },
+    CouldNotAssignValue { flag_name: &'a str, err: ValueError },
+}
+
+impl<'a, 's> error::Error for ParseError<'a, 's> {}
 
 // NOTE: anyhow is whining about ParseError not being Send+Sync.
-unsafe impl Send for ParseError {}
-unsafe impl Sync for ParseError {}
+unsafe impl<'a, 's> Send for ParseError<'a, 's> {}
+unsafe impl<'a, 's> Sync for ParseError<'a, 's> {}
 
-impl fmt::Display for ParseError {
+impl<'a, 's> fmt::Display for ParseError<'a, 's> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidArg(arg) => write!(f, "invalid arg: {arg:?}"),
             Self::InvalidSyntax { arg } => write!(f, "invalid syntax: {arg}"),
-            Self::UnknownFlag { name } => write!(f, "flag provided but not defined: -{name}"),
-            Self::MissingValue { flag_name } => write!(f, "flag needs an argument: -{flag_name}"),
+            Self::UnknownFlag { flag_name } => {
+                write!(f, "flag provided but not defined: {flag_name}")
+            }
+            Self::MissingValue { flag_name } => write!(f, "flag needs an argument: {flag_name}"),
             Self::CouldNotAssignValue { flag_name, err } => {
                 write!(f, "could not assign value to -{flag_name}: {err}")
             }
-            Self::HelpNotFirst => write!(f, "invalid position of help flag, must be first"),
-            Self::CouldNotPrintHelp(err) => write!(f, "could not print help: {err}"),
         }
     }
+}
+
+#[derive(Debug)]
+pub enum ParseOutcome<'a, 's> {
+    Ok,
+    Break(ParseBreak<'s>),
+    Error(ParseError<'a, 's>),
 }
 
 struct Flag<'a, 's> {
     name: &'a str,
     value: &'a mut dyn Value<'s>,
     usage: &'a str,
+    dirty: bool,
 }
 
 impl<'a, 's> SortedArrayCompare for Flag<'a, 's> {
@@ -230,61 +274,43 @@ impl<'a, 's> SortedArrayCompare for Flag<'a, 's> {
     }
 }
 
-fn print_flags<'a, 's, W: io::Write>(w: &mut W, flags: &[Flag<'a, 's>]) -> io::Result<()> {
-    let mut width = 0;
-    for Flag { name, .. } in flags {
-        width = width.max(name.len());
-    }
-
-    for Flag { name, usage, value } in flags {
-        write!(w, "  -{name:<width$}  ")?;
-        if !usage.trim().is_empty() {
-            write!(w, "{usage}")?;
-        }
-        if !value.is_none() {
-            write!(w, " (default: {value:?})")?;
-        }
-        writeln!(w)?;
-    }
-    Ok(())
-}
-
-fn parse_arg<'a, 's, I>(
+fn parse_one<'a, 's, I>(
     args: &mut I,
     flags: &mut [Flag<'a, 's>],
-) -> Result<ControlFlow<()>, ParseError>
+) -> Result<ControlFlow<Option<ParseBreak<'s>>>, ParseError<'a, 's>>
 where
-    I: Iterator<Item = Result<Cow<'s, str>, ParseError>>,
+    I: Iterator<Item = ArgKind<'s>>,
 {
-    let Some(arg) = args.next().transpose()? else {
-        return Ok(ControlFlow::Break(()));
+    let Some(arg_kind) = args.next() else {
+        return Ok(ControlFlow::Break(None));
     };
 
-    // NOTE: non-flag arg, terminate.
-    if !arg.starts_with('-') {
-        return Ok(ControlFlow::Break(()));
+    // NOTE: don't convert into cow str, just yet. maybe we'll need to return it to the caller.
+    let arg_bytes = arg_kind.as_os_str().as_encoded_bytes();
+    if !arg_bytes.starts_with(b"-") {
+        // NOTE: non-flag arg, terminate.
+        return Ok(ControlFlow::Break(Some(ParseBreak::NonFlag(arg_kind))));
     }
     let mut num_minuses = 1;
-    if arg[num_minuses..].starts_with('-') {
+    if arg_bytes[num_minuses..].starts_with(b"-") {
         num_minuses += 1;
         // NOTE: `--` terminates flags.
-        if arg == "--" {
-            return Ok(ControlFlow::Break(()));
+        if arg_bytes == b"--" {
+            return Ok(ControlFlow::Break(Some(ParseBreak::Terminator)));
         }
     }
 
-    // NOTE: this is tsoding's idea, see https://github.com/tsoding/flag.h.
+    let arg = arg_kind.into_cow_str().map_err(ParseError::InvalidArg)?;
+
     let mut ignore = false;
-    if arg[num_minuses..].starts_with('/') {
+    if arg[num_minuses..].starts_with(IGNORE_MARKER) {
         num_minuses += 1;
         ignore = true;
     }
 
     let mut name = &arg[num_minuses..];
     if name.is_empty() || name.starts_with(&['-', '=']) {
-        return Err(ParseError::InvalidSyntax {
-            arg: arg.to_string(),
-        });
+        return Err(ParseError::InvalidSyntax { arg });
     }
 
     let mut maybe_value_range = None::<Range<usize>>;
@@ -301,12 +327,10 @@ where
     }
 
     let Some(flag) = flags.iter_mut().find(|f| f.name == name) else {
-        return Err(match name {
-            "help" | "h" => ParseError::HelpNotFirst,
-            _ => ParseError::UnknownFlag {
-                name: name.to_string(),
-            },
-        });
+        return match name {
+            "help" | "h" => Ok(ControlFlow::Break(Some(ParseBreak::Help))),
+            _ => Err(ParseError::UnknownFlag { flag_name: arg }),
+        };
     };
 
     let value: Cow<'s, str> = match maybe_value_range {
@@ -324,10 +348,11 @@ where
         None if flag.value.is_bool() => Cow::Borrowed("true"),
         _ => args
             .next()
-            .ok_or_else(|| ParseError::MissingValue {
-                flag_name: name.to_string(),
-            })
-            .flatten()?,
+            .ok_or(ParseError::MissingValue {
+                flag_name: flag.name,
+            })?
+            .into_cow_str()
+            .map_err(ParseError::InvalidArg)?,
     };
 
     // TODO: should value be validated regardless of whether it's ignored or not?
@@ -335,9 +360,10 @@ where
         flag.value
             .assign(value)
             .map_err(|err| ParseError::CouldNotAssignValue {
-                flag_name: flag.name.to_string(),
+                flag_name: flag.name,
                 err,
             })?;
+        flag.dirty = true;
     }
 
     Ok(ControlFlow::Continue(()))
@@ -346,7 +372,6 @@ where
 #[derive(Default)]
 pub struct FlagSet<'a, 's, const N: usize = 32, A: Allocator = alloc::Global> {
     flags: SpillableSortedArraySet<Flag<'a, 's>, N, A>,
-    help: Option<&'a str>,
 }
 
 impl<'a, 's> FlagSet<'a, 's> {
@@ -358,86 +383,56 @@ impl<'a, 's> FlagSet<'a, 's> {
         let exists = self.flags.0.iter().find(|f| f.name == name).is_some();
         assert!(!exists, "flag redefined: {name}");
 
-        self.flags.insert(Flag { name, value, usage });
+        self.flags.insert(Flag {
+            name,
+            value,
+            usage,
+            dirty: false,
+        });
         self
     }
 
-    pub fn with_help(mut self, help: &'a str) -> Self {
-        self.help = Some(help);
-        self
-    }
-
-    fn parse_args<I>(mut self, args: I) -> Result<(), ParseError>
-    where
-        I: Iterator<Item = Result<Cow<'s, str>, ParseError>>,
-    {
-        // NOTE: unlike go i allow help to be requested only via first argument.
-        //
-        //   that is because i want to be able to print default values for flags in the help
-        //   message; parse_arg function immediately assigns values to registered flags meaning
-        //   that if help flag is not first in the list - values for preceeding flags are not
-        //   guarnateed to be default anymore.
-        //
-        //   i don't believe this worse then go. if you want to to request help you usually
-        //   wouldn't expect that flag at theoretical position 42 in the list do it, would you?
-        //   go's decision to handle it like that seems rather stange to me.
-        let mut args = args.peekable();
-        match args
-            .peek()
-            .map(|result| result.as_ref().map(|ok| ok.as_ref()))
-        {
-            Some(Ok("help" | "-h" | "-help" | "--h" | "--help")) => {
-                // NOTE: if help message was requested it seems logical to write it to stdout
-                // and not stderr.
-                let mut stdout = io::stdout();
-                // TODO: print provided help message
-                if let Some(help) = self.help {
-                    stdout.write(help.as_bytes()).unwrap();
-                } else {
-                    writeln!(&mut stdout as &mut dyn io::Write, "flags:").unwrap();
-                    print_flags(&mut io::stdout(), &self.flags.0).unwrap();
-                }
-                process::exit(1);
-            }
-            Some(Ok("/help" | "-/h" | "-/help" | "--/h" | "--/help")) => {
-                // NOTE: respect ignore-syntax!
-                _ = args.next();
-            }
-            _ => {}
+    pub fn print<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
+        let mut width = 0;
+        for Flag { name, .. } in self.flags.0.iter() {
+            width = width.max(name.len());
         }
 
-        loop {
-            match parse_arg(&mut args, &mut self.flags.0)? {
-                ControlFlow::Continue(_) => {}
-                ControlFlow::Break(_) => break,
+        for Flag {
+            name,
+            usage,
+            value,
+            dirty,
+        } in self.flags.0.iter()
+        {
+            write!(w, "  -{name:<width$}  ")?;
+            if !usage.trim().is_empty() {
+                write!(w, "{usage}")?;
             }
+            match (value.is_none(), dirty) {
+                (false, false) => write!(w, " (default: {value:?})")?,
+                (false, true) => write!(w, " (dirty: {value:?})")?,
+                _ => {}
+            }
+            write!(w, "\n")?;
         }
 
         Ok(())
     }
 
-    pub fn parse_os_str_args<I>(self, args: I) -> Result<(), ParseError>
+    // NOTE: program name must not be included.
+    pub fn parse<I>(&mut self, mut args: I) -> ParseOutcome<'a, 's>
     where
-        I: Iterator<Item = &'s OsStr>,
+        I: Iterator<Item = ArgKind<'s>>,
     {
-        let args = args.map(|os_str| {
-            <&'s str>::try_from(os_str)
-                .map(Cow::Borrowed)
-                .map_err(|_| ParseError::InvalidArg(os_str.to_os_string()))
-        });
-        self.parse_args(args)
-    }
-
-    pub fn parse_os_string_args<I>(self, args: I) -> Result<(), ParseError>
-    where
-        I: Iterator<Item = OsString>,
-    {
-        let args = args.map(|os_string| {
-            os_string
-                .into_string()
-                .map(Cow::Owned)
-                .map_err(|os_string| ParseError::InvalidArg(os_string))
-        });
-        self.parse_args(args)
+        loop {
+            match parse_one(&mut args, &mut self.flags.0) {
+                Ok(ControlFlow::Continue(..)) => {}
+                Ok(ControlFlow::Break(None)) => break,
+                Ok(ControlFlow::Break(Some(b))) => return ParseOutcome::Break(b),
+                Err(e) => return ParseOutcome::Error(e),
+            }
+        }
+        ParseOutcome::Ok
     }
 }

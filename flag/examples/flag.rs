@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::ffi::OsString;
+use std::io;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -37,28 +38,45 @@ fn main() {
     let mut i8_flag = -42_i8;
     let mut custom_flag = None::<Custom>;
 
-    let flag_set = flag::FlagSet::default()
-        .add("cow-str", &mut cow_str_flag, "Cow<'_, str> flag")
-        .add("os-string", &mut os_string_flag, "OsString flag")
-        .add("path-buf", &mut path_buf_flag, "PathBuf flag")
-        .add("string", &mut string_flag, "String flag")
-        .add("bool", &mut bool_flag, "bool flag")
-        .add("f64", &mut f64_flag, "f64 flag")
-        .add("i8", &mut i8_flag, "i8 flag")
-        .add("custom", &mut custom_flag, "custom flag");
-
-    if let Some((argc, argv)) = arg::argc_argv() {
-        // TODO: on windows (probably) (well, i don't do argc_argv on windows, nor ever touch
-        // windows, BUT) first argument is not guaranteed to be the name of the program.
-        flag_set
-            .parse_os_str_args(arg::ArgIterator::new(argc, argv).skip(1))
-            .expect("invalid args");
-
+    let maybe_argc_argv = arg::argc_argv();
+    {
+        let mut flag_set = flag::FlagSet::default()
+            .add("cow-str", &mut cow_str_flag, "Cow<'_, str> flag")
+            .add("os-string", &mut os_string_flag, "OsString flag")
+            .add("path-buf", &mut path_buf_flag, "PathBuf flag")
+            .add("string", &mut string_flag, "String flag")
+            .add("bool", &mut bool_flag, "bool flag")
+            .add("f64", &mut f64_flag, "f64 flag")
+            .add("i8", &mut i8_flag, "i8 flag")
+            .add("custom", &mut custom_flag, "custom flag");
+        let parse_outcome = if let Some((argc, argv)) = maybe_argc_argv {
+            flag_set.parse(
+                arg::ArgIter::new(argc, argv)
+                    .map(flag::ArgKind::OsStr)
+                    .skip(1),
+            )
+        } else {
+            flag_set.parse(std::env::args_os().map(flag::ArgKind::OsString).skip(1))
+        };
+        match parse_outcome {
+            flag::ParseOutcome::Ok => {}
+            flag::ParseOutcome::Break(flag::ParseBreak::Help) => {
+                flag_set
+                    .print(&mut io::stdout())
+                    .expect("could not print flags");
+                return;
+            }
+            flag::ParseOutcome::Break(flag::ParseBreak::NonFlag(arg_kind)) => {
+                eprintln!("break at non-flag: {arg_kind:?}");
+            }
+            flag::ParseOutcome::Break(flag::ParseBreak::Terminator) => {
+                eprintln!("break at terminator");
+            }
+            flag::ParseOutcome::Error(err) => panic!("could not parse flags: {err}"),
+        }
+    }
+    if maybe_argc_argv.is_some() {
         assert!(matches!(cow_str_flag, Cow::Borrowed(_)));
-    } else {
-        flag_set
-            .parse_os_string_args(std::env::args_os().skip(1))
-            .expect("invalid args");
     }
 
     #[rustfmt::skip]

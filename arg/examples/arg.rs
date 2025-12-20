@@ -6,7 +6,7 @@ fn main() {
         process::exit(1);
     };
 
-    let mut args = arg::ArgIterator::new(argc, argv);
+    let mut args = arg::ArgIter::new(argc, argv);
     while let Some(arg) = args.next() {
         println!("{arg:?}");
     }

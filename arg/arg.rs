@@ -120,13 +120,13 @@ pub fn argc_argv() -> Option<(c_int, *mut *mut c_char)> {
 //   everything pretty straightforward for unix systems.
 //   things also appear to be the same for windows, see
 //   https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170#example-of-command-line-argument-parsing
-pub struct ArgIterator {
+pub struct ArgIter {
     argc: isize,
     argv: *mut *mut c_char,
     i: isize,
 }
 
-impl ArgIterator {
+impl ArgIter {
     pub fn new(argc: c_int, argv: *mut *mut c_char) -> Self {
         Self {
             argc: argc as isize,
@@ -136,7 +136,7 @@ impl ArgIterator {
     }
 }
 
-impl Iterator for ArgIterator {
+impl Iterator for ArgIter {
     type Item = &'static OsStr;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -160,25 +160,6 @@ impl Iterator for ArgIterator {
         // NOTE: this is not questionable for unix systems;
         //   but what about windows? shoudln't be a problem either, see
         //   https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170#example-of-command-line-argument-parsing
-        let osstr = unsafe { OsStr::from_encoded_bytes_unchecked(cstr.to_bytes()) };
-        Some(osstr)
-    }
-}
-
-impl DoubleEndedIterator for ArgIterator {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.i == 0 {
-            return None;
-        }
-
-        self.i -= 1;
-        let ptr = unsafe { self.argv.offset(self.i).read() };
-
-        if ptr.is_null() {
-            return self.next_back();
-        }
-
-        let cstr = unsafe { CStr::from_ptr(ptr) };
         let osstr = unsafe { OsStr::from_encoded_bytes_unchecked(cstr.to_bytes()) };
         Some(osstr)
     }
