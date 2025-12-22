@@ -7,7 +7,6 @@ members = [
   "containers",
   "flag",
   "fxhash",
-  "genvec",
   "nohash",
   "rangealloc",
   "scopeguard",
@@ -28,7 +27,6 @@ bitbuf = { path = "bitbuf" }
 containers = { path = "containers" }
 flag = { path = "flag" }
 fxhash = { path = "fxhash" }
-genvec = { path = "genvec" }
 nohash = { path = "nohash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
@@ -53,7 +51,6 @@ bitbuf = { workspace = true, optional = true }
 containers = { workspace = true, optional = true }
 flag = { workspace = true, optional = true }
 fxhash = { workspace = true, optional = true }
-genvec = { workspace = true, optional = true }
 nohash = { workspace = true, optional = true }
 rangealloc = { workspace = true, optional = true }
 scopeguard = { workspace = true, optional = true }
@@ -66,7 +63,6 @@ bitbuf = ["dep:bitbuf"]
 containers = ["dep:containers", "alloc"]
 flag = ["dep:flag"]
 fxhash = ["dep:fxhash"]
-genvec = ["dep:genvec"]
 nohash = ["dep:nohash"]
 rangealloc = ["dep:rangealloc"]
 scopeguard = ["dep:scopeguard"]

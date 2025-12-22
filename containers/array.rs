@@ -15,6 +15,10 @@ use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
 //   grow_amortized and grow_exact - these aren't nice nor not even good enough.
+//
+// TODO: i want to be able to set upper bound for array's growth.
+//   for example handle array's len may not exceed u32::MAX thus it's cap must be bounded by that.
+//   but this is probably too theoretical and practically will never happen?
 
 // NOTE: this is copypasted from std.
 //

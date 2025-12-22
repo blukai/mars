@@ -16,9 +16,6 @@ pub use flag;
 #[cfg(feature = "fxhash")]
 pub use fxhash;
 
-#[cfg(feature = "genvec")]
-pub use genvec;
-
 #[cfg(feature = "nohash")]
 pub use nohash;
 

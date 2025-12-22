@@ -232,10 +232,6 @@ name = "fxhash"
 version = "0.0.0"
 
 [[package]]
-name = "genvec"
-version = "0.0.0"
-
-[[package]]
 name = "half"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -308,7 +304,6 @@ dependencies = [
  "containers",
  "flag",
  "fxhash",
- "genvec",
  "nohash",
  "rangealloc",
  "scopeguard",

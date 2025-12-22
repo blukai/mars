@@ -1,5 +1,6 @@
 pub mod array;
 pub mod cstring;
+pub mod handlearray;
 pub mod memory;
 pub mod sortedarray;
 pub mod string;

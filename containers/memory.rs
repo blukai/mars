@@ -134,6 +134,9 @@ impl<T, A: Allocator + Default> Default for GrowableMemory<T, A> {
 // TODO: consider renaming FixedMemory to StackMemory or something alike.
 //   that is because it is not unreasonable to think of fixed size heap allocations.
 //   the word "fixed" doesn't fully correctly convey the meaning.
+//
+//   word "static" is also an option. not in terms of static location in memory, but
+//   statically-known size.
 
 #[repr(transparent)]
 pub struct FixedMemory<T, const N: usize> {
