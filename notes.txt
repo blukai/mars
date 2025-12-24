@@ -19,8 +19,6 @@ TODO:
     without giving any control over it.
     maybe see https://github.com/focus-editor/focus/blob/fefbb480e593c3aef442d4f4851ef1175a349626/modules/File_Watcher/module.jai
   - improve rangealloc (see TODOs all around it)
-  - arena alloc
-  - combine nohash and fxhash into a single hash crate
 
 ----
   - good overview of different array variants - https://azmr.uk/dyn/

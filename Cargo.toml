@@ -6,8 +6,7 @@ members = [
   "bitbuf",
   "containers",
   "flag",
-  "fxhash",
-  "nohash",
+  "hash",
   "rangealloc",
   "scopeguard",
   "varint",
@@ -26,8 +25,7 @@ arg = { path = "arg" }
 bitbuf = { path = "bitbuf" }
 containers = { path = "containers" }
 flag = { path = "flag" }
-fxhash = { path = "fxhash" }
-nohash = { path = "nohash" }
+hash = { path = "hash" }
 rangealloc = { path = "rangealloc" }
 scopeguard = { path = "scopeguard" }
 varint = { path = "varint" }
@@ -50,8 +48,7 @@ arg = { workspace = true, optional = true }
 bitbuf = { workspace = true, optional = true }
 containers = { workspace = true, optional = true }
 flag = { workspace = true, optional = true }
-fxhash = { workspace = true, optional = true }
-nohash = { workspace = true, optional = true }
+hash = { workspace = true, optional = true }
 rangealloc = { workspace = true, optional = true }
 scopeguard = { workspace = true, optional = true }
 varint = { workspace = true, optional = true }
@@ -62,8 +59,7 @@ arg = ["dep:arg"]
 bitbuf = ["dep:bitbuf"]
 containers = ["dep:containers", "alloc"]
 flag = ["dep:flag"]
-fxhash = ["dep:fxhash"]
-nohash = ["dep:nohash"]
+hash = ["dep:hash"]
 rangealloc = ["dep:rangealloc"]
 scopeguard = ["dep:scopeguard"]
 varint = ["dep:varint", "bitbuf?/varint"]

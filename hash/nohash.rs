@@ -1,10 +1,9 @@
 //! this is like <https://github.com/paritytech/nohash-hasher>, but i have my opinions.
 
-use std::any::type_name;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::hash::{BuildHasherDefault, Hash, Hasher};
-use std::marker::PhantomData;
+use core::any::type_name;
+use core::fmt;
+use core::hash::{BuildHasherDefault, Hash, Hasher};
+use core::marker::PhantomData;
 
 pub trait NoHash: Hash {}
 
@@ -110,6 +109,3 @@ impl<T> Clone for NoHasher<T> {
 impl<T> Copy for NoHasher<T> {}
 
 pub type NoBuildHasher<T> = BuildHasherDefault<NoHasher<T>>;
-
-pub type NoHashMap<K, V> = HashMap<K, V, NoBuildHasher<K>>;
-pub type NoHashSet<T> = HashSet<T, NoBuildHasher<T>>;

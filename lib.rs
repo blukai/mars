@@ -13,11 +13,8 @@ pub use containers::*;
 #[cfg(feature = "flag")]
 pub use flag;
 
-#[cfg(feature = "fxhash")]
-pub use fxhash;
-
-#[cfg(feature = "nohash")]
-pub use nohash;
+#[cfg(feature = "hash")]
+pub use hash::*;
 
 #[cfg(feature = "rangealloc")]
 pub use rangealloc;

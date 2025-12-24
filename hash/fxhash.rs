@@ -56,8 +56,7 @@
 //! see <https://searchfox.org/firefox-main/rev/57c85839a717f3a5e1c854150f1e5743133fbdda/mfbt/HashFunctions.h>
 //! and <https://searchfox.org/firefox-main/rev/f32cfcbfa2ec5417780e0d8d7b16530523a009c2/mfbt/HashFunctions.cpp>
 
-use std::collections::{HashMap, HashSet};
-use std::hash::{BuildHasherDefault, Hasher};
+use core::hash::{BuildHasherDefault, Hasher};
 
 // NOTE: u64 golden ration is stolen from old version of rustc_hash
 //   see <https://github.com/rust-lang/rustc-hash/blob/786ccda70fce97a3177d6088f21a22ac7f0f2f85/src/lib.rs#L67>
@@ -137,6 +136,3 @@ impl Hasher for FxHasher {
 }
 
 pub type FxBuildHasher = BuildHasherDefault<FxHasher>;
-
-pub type FxHashMap<K, V> = HashMap<K, V, FxBuildHasher>;
-pub type FxHashSet<T> = HashSet<T, FxBuildHasher>;
