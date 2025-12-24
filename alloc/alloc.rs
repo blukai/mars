@@ -7,7 +7,14 @@ pub use temp::*;
 mod temp;
 
 #[inline]
-pub const fn size_align_up(size: usize, align: usize) -> usize {
+pub(crate) const fn align_up(size: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     (size + align - 1) & !(align - 1)
+}
+
+// TODO: remove once `core::ptr::is_aligned_to` (`pointer_is_aligned_to` feature flag) is stable.
+#[inline]
+pub(crate) fn ptr_is_aligned_to<T>(ptr: *const T, align: usize) -> bool {
+    debug_assert!(align.is_power_of_two());
+    ptr.addr() & (align - 1) == 0
 }

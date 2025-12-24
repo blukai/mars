@@ -4,12 +4,7 @@ use core::ptr::{self, NonNull, null_mut};
 
 use scopeguard::ScopeGuard;
 
-use crate::{AllocError, Allocator, Layout, size_align_up};
-
-// TODO: remove once `core::cmp::max` is usable in const.
-const fn max(a: usize, b: usize) -> usize {
-    if a > b { a } else { b }
-}
+use crate::{AllocError, Allocator, Layout, align_up, ptr_is_aligned_to};
 
 #[non_exhaustive]
 pub struct TempCheckpoint {
@@ -28,6 +23,7 @@ pub struct TempCheckpoint {
 //   it's generic over const SIZE. data is on the stack.
 //
 // TODO: add overflow pages if stack allocation can't afford to fit everythung you want.
+//   can use ArenaAllocator (from arena.rs) for that, right?
 //
 // TODO: should MIN_ALIGN be size_of::<usize>()?
 //   size of usize when compiled to wasm is 4 because wasm is 32 bit.
@@ -87,45 +83,45 @@ impl<'data> TempAllocator<'data> {
 
     /// may return null.
     /// memory is non-zeroed.
-    pub const fn allocate(&self, layout: Layout) -> *mut u8 {
-        pub const MIN_ALIGN: usize = 8;
-        let size = size_align_up(layout.size(), max(layout.align(), MIN_ALIGN));
-
-        let prev_occupied = self.occupied.get();
-        let remaining = self.size - prev_occupied;
-        if size > remaining {
+    pub fn allocate(&self, layout: Layout) -> *mut u8 {
+        let curr_occupied = self.occupied.get();
+        let addr_maybe_unaligned = self.data.addr() + curr_occupied;
+        let addr_aligned_up = align_up(addr_maybe_unaligned, layout.align());
+        let padding = addr_aligned_up - addr_maybe_unaligned;
+        let next_occupied = curr_occupied + layout.size() + padding;
+        if next_occupied > self.size {
             return null_mut();
         }
-
-        let next_occupied = prev_occupied + size;
         self.occupied.replace(next_occupied);
         self.high_water_mark
-            .replace(max(self.high_water_mark.get(), next_occupied));
-
-        unsafe { self.data.add(prev_occupied).cast::<u8>() }
+            .replace(self.high_water_mark.get().max(next_occupied));
+        let ret = addr_aligned_up as *mut u8;
+        debug_assert!(ptr_is_aligned_to(ret, layout.align()));
+        ret
     }
 
-    pub const fn get_checkpoint(&self) -> TempCheckpoint {
+    pub fn get_checkpoint(&self) -> TempCheckpoint {
         TempCheckpoint {
             occupied: self.occupied.get(),
         }
     }
 
-    pub const fn reset_to_checkpoint(&self, checkpoint: TempCheckpoint) {
+    pub fn reset_to_checkpoint(&self, checkpoint: TempCheckpoint) {
         assert!(checkpoint.occupied <= self.size);
         self.occupied.replace(checkpoint.occupied);
     }
 
+    // TODO: consider renaming this to auto_checkpoint or scope_checkpoint or something.
     pub fn scope_guard(&self) -> ScopeGuard<(), impl FnOnce(())> {
         let checkpoint = self.get_checkpoint();
         ScopeGuard::new(move || self.reset_to_checkpoint(checkpoint))
     }
 
-    pub const fn get_high_water_mark(&self) -> usize {
+    pub fn get_high_water_mark(&self) -> usize {
         self.high_water_mark.get()
     }
 
-    pub const fn reset(&self) {
+    pub fn reset(&self) {
         self.occupied.replace(0);
         self.high_water_mark.replace(0);
     }
@@ -138,28 +134,55 @@ unsafe impl<'data> Allocator for TempAllocator<'data> {
     }
 
     unsafe fn deallocate(&self, _ptr: NonNull<u8>, _layout: Layout) {
-        // call reset() periodically.
+        // NOTE: no individual deallocations. use checkpoints or reset.
     }
 }
 
-#[test]
-fn test_temp_storage() {
+#[cfg(test)]
+mod tests {
     use core::mem::MaybeUninit;
 
-    let mut temp_data = MaybeUninit::<[u8; 1000]>::uninit();
-    let temp = TempAllocator::new(unsafe { temp_data.assume_init_mut() });
+    use super::*;
 
-    // normal type
-    {
-        temp.allocate(Layout::new::<u64>());
-        assert_eq!(temp.get_checkpoint().occupied, size_of::<u64>());
-        temp.reset();
+    #[test]
+    fn test_temp() {
+        let mut temp_data = MaybeUninit::<[u8; 1000]>::uninit();
+        let temp = TempAllocator::new(unsafe { temp_data.assume_init_mut() });
+
+        // normal type
+        {
+            temp.allocate(Layout::new::<u64>());
+            assert_eq!(temp.get_checkpoint().occupied, size_of::<u64>());
+            temp.reset();
+        }
+
+        // zero-sized type
+        {
+            temp.allocate(Layout::new::<()>());
+            assert_eq!(temp.get_checkpoint().occupied, size_of::<()>());
+            temp.reset();
+        }
     }
 
-    // zero-sized type
-    {
-        temp.allocate(Layout::new::<()>());
-        assert_eq!(temp.get_checkpoint().occupied, size_of::<()>());
-        temp.reset();
+    #[test]
+    fn test_alignment() {
+        for align in [2, 4, 8, 16, 32, 64] {
+            let mut temp_memory = {
+                let temp_layout = Layout::array::<u8>(1 << 20).unwrap();
+                scopeguard::ScopeGuard::new_with_data(
+                    crate::Global.allocate(temp_layout).unwrap(),
+                    move |temp_memory| unsafe {
+                        crate::Global.deallocate(temp_memory.cast(), temp_layout)
+                    },
+                )
+            };
+            let temp = TempAllocator::new(unsafe { (*temp_memory).as_mut() });
+            let layout = Layout::from_size_align(align, align).unwrap();
+            for _ in 0..1024 {
+                let ptr = temp.allocate(layout);
+                assert!(!ptr.is_null());
+                assert_eq!(ptr.align_offset(align), 0);
+            }
+        }
     }
 }
