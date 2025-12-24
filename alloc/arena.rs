@@ -3,12 +3,9 @@ use core::ptr::{self, NonNull, null_mut};
 
 use scopeguard::ScopeGuard;
 
-use crate::{AllocError, Allocator, Layout, align_up};
-
-// TODO: MIN_ALIGN must apply not only to regions, but to all allocations. right?
+use crate::{AllocError, Allocator, Layout, align_up, ptr_is_aligned_to};
 
 pub const ARENA_DEFAULT_MIN_REGION_CAP: usize = 8 << 20;
-pub const ARENA_DEFAULT_MIN_ALIGN: usize = 8;
 
 const HEADER_SIZE: usize = size_of::<Region>();
 const HEADER_ALIGN: usize = size_of::<Region>();
@@ -19,27 +16,23 @@ pub struct ArenaCheckpoint(
     (*mut Region, usize),
 );
 
-#[derive(Debug)]
 struct Region {
     cap: usize,
     next: *mut Region,
 }
 
-// TODO: should ArenaAllocator's alignment be configurable?
-pub struct ArenaAllocator<
-    A: Allocator,
-    const MIN_REGION_CAP: usize = ARENA_DEFAULT_MIN_REGION_CAP,
-    const MIN_ALIGN: usize = ARENA_DEFAULT_MIN_ALIGN,
-> {
+// TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
+//
+// TODO: should ArenaAllocator's alignment be configurable (MIN_ALIGN generic param)?
+pub struct ArenaAllocator<A: Allocator, const MIN_REGION_CAP: usize = ARENA_DEFAULT_MIN_REGION_CAP>
+{
     alloc: A,
     head: Cell<*mut Region>,
     curr: Cell<*mut Region>,
     curr_occupied: Cell<usize>,
 }
 
-impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize>
-    ArenaAllocator<A, MIN_REGION_CAP, MIN_ALIGN>
-{
+impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP> {
     pub const fn new_in(alloc: A) -> Self {
         Self {
             alloc,
@@ -53,9 +46,8 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize>
         unsafe {
             let cap = min_size.max(MIN_REGION_CAP);
             let size_including_header = cap + HEADER_SIZE;
-            let align = HEADER_ALIGN.max(MIN_ALIGN);
             // NOTE: Layout must be synced with what's in drop().
-            let layout = Layout::from_size_align_unchecked(size_including_header, align);
+            let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
             let memory = self.alloc.allocate(layout)?;
 
             let region = memory.cast::<Region>().as_mut();
@@ -86,13 +78,15 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize>
                 let curr_ptr = self.curr.get();
                 let curr_occupied = self.curr_occupied.get();
                 let addr_base = curr_ptr.addr() + HEADER_SIZE;
-                let addr = addr_base + curr_occupied;
-                let addr_aligned_up = align_up(addr, layout.align());
-                debug_assert!(addr_aligned_up >= addr_base);
-                let next_occupied = curr_occupied + layout.size() + (addr_aligned_up - addr);
+                let addr_maybe_unaligned = addr_base + curr_occupied;
+                let addr_aligned_up = align_up(addr_maybe_unaligned, layout.align());
+                let padding = addr_aligned_up - addr_maybe_unaligned;
+                let next_occupied = curr_occupied + layout.size() + padding;
                 if next_occupied <= (*curr_ptr).cap {
                     self.curr_occupied.set(next_occupied);
-                    return addr_aligned_up as *mut u8;
+                    let ret = addr_aligned_up as *mut u8;
+                    debug_assert!(ptr_is_aligned_to(ret, layout.align()));
+                    return ret;
                 }
 
                 // NOTE: maybe we did a reset/reset_to_checkpoint.
@@ -124,6 +118,7 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize>
 
     fn is_this_your_checkpount(&self, checkpoint: &ArenaCheckpoint) -> bool {
         unsafe {
+            assert!(!checkpoint.0.0.is_null());
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
                 if region as *mut _ == checkpoint.0.0 {
@@ -141,16 +136,12 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize>
     }
 
     pub fn reset_to_checkpoint(&self, checkpoint: ArenaCheckpoint) {
-        let ArenaCheckpoint((curr, curr_occupued)) = checkpoint;
-        if curr.is_null() {
-            assert_eq!(curr_occupued, 0);
-            self.curr.set(self.head.get());
-            self.curr_occupied.set(0);
-        } else {
-            assert!(self.is_this_your_checkpount(&checkpoint));
-            self.curr.set(curr);
-            self.curr_occupied.set(curr_occupued);
+        if checkpoint.0.0.is_null() {
+            return self.reset();
         }
+        assert!(self.is_this_your_checkpount(&checkpoint));
+        self.curr.set(checkpoint.0.0);
+        self.curr_occupied.set(checkpoint.0.1);
     }
 
     // TODO: consider renaming this to auto_checkpoint or scope_checkpoint or something.
@@ -160,9 +151,7 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize>
     }
 }
 
-impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize> Drop
-    for ArenaAllocator<A, MIN_REGION_CAP, MIN_ALIGN>
-{
+impl<A: Allocator, const MIN_REGION_CAP: usize> Drop for ArenaAllocator<A, MIN_REGION_CAP> {
     fn drop(&mut self) {
         unsafe {
             let mut cursor = self.head.get();
@@ -170,9 +159,8 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize> Drop
                 cursor = region.next;
 
                 let size_including_header = region.cap + HEADER_SIZE;
-                let align = HEADER_ALIGN.max(MIN_ALIGN);
                 // NOTE: Layout must be synced with what's in allocate_region().
-                let layout = Layout::from_size_align_unchecked(size_including_header, align);
+                let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
                 self.alloc
                     .deallocate(NonNull::from_mut(region).cast(), layout);
             }
@@ -180,8 +168,8 @@ impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize> Drop
     }
 }
 
-impl<A: Allocator + Default, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize> Default
-    for ArenaAllocator<A, MIN_REGION_CAP, MIN_ALIGN>
+impl<A: Allocator + Default, const MIN_REGION_CAP: usize> Default
+    for ArenaAllocator<A, MIN_REGION_CAP>
 {
     #[inline]
     fn default() -> Self {
@@ -189,8 +177,8 @@ impl<A: Allocator + Default, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize
     }
 }
 
-unsafe impl<A: Allocator, const MIN_REGION_CAP: usize, const MIN_ALIGN: usize> Allocator
-    for ArenaAllocator<A, MIN_REGION_CAP, MIN_ALIGN>
+unsafe impl<A: Allocator, const MIN_REGION_CAP: usize> Allocator
+    for ArenaAllocator<A, MIN_REGION_CAP>
 {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         let data = self.allocate(layout);
@@ -207,7 +195,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_allocate() {
+    fn test_arena() {
         let arena = ArenaAllocator::<crate::Global, 1024>::default();
         let layout = Layout::from_size_align(100, 8).unwrap();
         let p1 = arena.allocate(layout);

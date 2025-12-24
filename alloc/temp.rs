@@ -53,7 +53,8 @@ pub struct TempCheckpoint {
 //     - https://github.com/dtolnay/linkme
 //     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
-#[repr(C, align(64))]
+//
+// TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
 pub struct TempAllocator<'data> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;
