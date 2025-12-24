@@ -4,7 +4,7 @@ use core::fmt::{self, Write as _};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 pub use core::str::Utf8Error;
-use core::{mem, ops, ptr, slice};
+use core::{cmp, mem, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
@@ -499,14 +499,14 @@ impl<M: Memory<u8>> Eq for String<M> {}
 
 impl<M: Memory<u8>> PartialOrd for String<M> {
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         PartialOrd::partial_cmp(self.as_str(), other.as_str())
     }
 }
 
 impl<M: Memory<u8>> Ord for String<M> {
     #[inline]
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         Ord::cmp(self.as_str(), other.as_str())
     }
 }

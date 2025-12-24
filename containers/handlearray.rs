@@ -1,8 +1,8 @@
-use std::any::TypeId;
-use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
-use std::mem;
-use std::num::NonZeroU32;
+use core::any::{TypeId, type_name};
+use core::hash::{Hash, Hasher};
+use core::marker::PhantomData;
+use core::num::NonZeroU32;
+use core::{fmt, mem};
 
 use alloc::{AllocError, Allocator};
 
@@ -135,12 +135,12 @@ pub struct Handle<T> {
 }
 
 // @BlindDerive
-impl<T> std::fmt::Debug for Handle<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T> fmt::Debug for Handle<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Handle")
             .field("index", &self.index)
             .field("generation", &self.generation)
-            .field("type_marker", &std::any::type_name::<T>())
+            .field("type_marker", &type_name::<T>())
             .finish()
     }
 }
@@ -545,7 +545,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
         let entry = &mut self.entries[ticket.index as usize];
         entry.kind = EntryKind::Occupied(value);
         // NOTE: forget is called to not invoke manually implemented panicking drop.
-        std::mem::forget(ticket);
+        mem::forget(ticket);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Handle<T>, &T)> {
@@ -630,6 +630,8 @@ mod oom {
 
 #[cfg(test)]
 mod tests {
+    use core::any::type_name_of_val;
+
     use super::*;
 
     #[test]
@@ -661,7 +663,7 @@ mod tests {
         let handle = this.push(42u8);
 
         let (ticket, value) = this.take(handle);
-        assert_eq!(std::any::type_name_of_val(&value), "u8");
+        assert_eq!(type_name_of_val(&value), "u8");
 
         this.put_back(ticket, value);
     }
