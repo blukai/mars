@@ -62,10 +62,11 @@ impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP
     pub fn allocate(&self, layout: Layout) -> *mut u8 {
         unsafe {
             // TODO: do i need to do anything special for zsts?
-            // TODO: should ARENA_DEFAULT_MIN_ALIGN be a part of this?
 
             // NOTE: first allocation.
             if self.curr.get().is_null() {
+                assert!(self.head.get().is_null());
+                assert!(self.curr_occupied.get() == 0);
                 let Ok(head) = self.allocate_region(layout.size()) else {
                     return null_mut();
                 };
@@ -116,12 +117,29 @@ impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP
         self.curr_occupied.set(0);
     }
 
-    fn is_this_your_checkpount(&self, checkpoint: &ArenaCheckpoint) -> bool {
+    pub fn is_this_your_memory(&self, memory: NonNull<u8>) -> bool {
         unsafe {
-            assert!(!checkpoint.0.0.is_null());
+            let addr = memory.addr().get();
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
-                if region as *mut _ == checkpoint.0.0 {
+                let start = (region as *const _ as *const u8).addr() + HEADER_SIZE;
+                let end = start + region.cap;
+                if addr >= start && addr < end {
+                    return true;
+                }
+
+                cursor = region.next;
+            }
+            false
+        }
+    }
+
+    fn is_this_your_checkoint(&self, checkpoint: &ArenaCheckpoint) -> bool {
+        unsafe {
+            let ArenaCheckpoint((ptr, _)) = *checkpoint;
+            let mut cursor = self.head.get();
+            while let Some(region) = cursor.as_mut() {
+                if region as *mut _ == ptr {
                     return true;
                 }
 
@@ -136,12 +154,13 @@ impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP
     }
 
     pub fn reset_to_checkpoint(&self, checkpoint: ArenaCheckpoint) {
-        if checkpoint.0.0.is_null() {
+        let ArenaCheckpoint((ptr, occupied)) = checkpoint;
+        if ptr.is_null() {
             return self.reset();
         }
-        assert!(self.is_this_your_checkpount(&checkpoint));
-        self.curr.set(checkpoint.0.0);
-        self.curr_occupied.set(checkpoint.0.1);
+        assert!(self.is_this_your_checkoint(&checkpoint));
+        self.curr.set(ptr);
+        self.curr_occupied.set(occupied);
     }
 
     // TODO: consider renaming this to auto_checkpoint or scope_checkpoint or something.
