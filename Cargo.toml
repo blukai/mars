@@ -16,7 +16,7 @@ members = [
 edition = "2024"
 
 [workspace.dependencies]
-allocator-api2 = { version = "0.3.1" }
+allocator-api2 = { version = "0.2.9" }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion-cycles-per-byte = { version = "0.6.1" }
 # workspace
