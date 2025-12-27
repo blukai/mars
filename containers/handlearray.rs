@@ -329,11 +329,21 @@ impl<T> Ticket<T> {
 /// - <https://github.com/LPGhatguy/thunderdome>
 /// - <https://github.com/fitzgen/generational-arena>
 /// - <https://docs.rs/fyrox/latest/fyrox/core/pool/struct.Pool.html>
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HandleArray<T, A: Allocator> {
     // NOTE: i don't see any reason for making it possible to use other flavors of Array here.
     entries: GrowableArray<Entry<T>, A>,
     free_head: Option<u32>,
+}
+
+// @BlindDerive
+impl<T, A: Allocator + Default> Default for HandleArray<T, A> {
+    fn default() -> Self {
+        Self {
+            entries: Array::new_growable_in(A::default()),
+            free_head: None,
+        }
+    }
 }
 
 impl<T, A: Allocator> HandleArray<T, A> {
