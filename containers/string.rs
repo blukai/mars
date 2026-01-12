@@ -70,7 +70,7 @@ impl fmt::Write for RawFormatter {
 pub struct Formatter<'a>(RawFormatter, PhantomData<&'a mut ()>);
 
 impl<'a> Formatter<'a> {
-    pub const fn from_raw_parts(ptr: *mut u8, cap: usize) -> Self {
+    pub const unsafe fn from_raw_parts(ptr: *mut u8, cap: usize) -> Self {
         Self(
             unsafe { RawFormatter::from_raw_parts(ptr, cap) },
             PhantomData,
@@ -179,7 +179,7 @@ impl<M: Memory<u8>> String<M> {
 
     #[inline]
     pub fn memory(&self) -> &M {
-        &self.0.memory()
+        self.0.memory()
     }
 
     #[inline]
@@ -244,7 +244,7 @@ impl<M: Memory<u8>> String<M> {
     }
 
     pub fn pop(&mut self) -> Option<char> {
-        let c = self.chars().rev().next()?;
+        let c = self.chars().next_back()?;
         let new_len = self.len() - c.len_utf8();
         unsafe { self.0.set_len(new_len) };
         Some(c)
@@ -390,7 +390,7 @@ impl<M: Memory<u8>> String<M> {
         };
         self.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
 
-        let mut f = Formatter::from_raw_parts(self.as_mut_ptr(), size);
+        let mut f = unsafe { Formatter::from_raw_parts(self.as_mut_ptr(), size) };
         f.write_fmt(args).map_err(FromFmtError::Fmt)?;
 
         assert_eq!(size, f.written());
@@ -478,9 +478,6 @@ macro_rules! impl_partial_eq {
         {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool { self[..] == other[..] }
-
-            #[inline]
-            fn ne(&self, other: &$rhs) -> bool { self[..] != other[..] }
         }
     }
 }

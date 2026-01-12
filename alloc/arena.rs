@@ -139,7 +139,7 @@ impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP
             let ArenaCheckpoint((ptr, _)) = *checkpoint;
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
-                if region as *mut _ == ptr {
+                if ptr::eq(region, ptr) {
                     return true;
                 }
 

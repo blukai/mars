@@ -372,9 +372,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
 
     #[inline]
     fn try_get_entry_by_handle(&self, handle: Handle<T>) -> Option<&Entry<T>> {
-        let Some(entry) = self.entries.get(handle.index as usize) else {
-            return None;
-        };
+        let entry = self.entries.get(handle.index as usize)?;
         if entry.generation != handle.generation {
             return None;
         }
@@ -393,9 +391,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
 
     #[inline]
     fn try_get_entry_by_handle_mut(&mut self, handle: Handle<T>) -> Option<&mut Entry<T>> {
-        let Some(entry) = self.entries.get_mut(handle.index as usize) else {
-            return None;
-        };
+        let entry = self.entries.get_mut(handle.index as usize)?;
         if entry.generation != handle.generation {
             return None;
         }

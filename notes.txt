@@ -22,3 +22,4 @@ TODO:
 
 ----
   - good overview of different array variants - https://azmr.uk/dyn/
+  - good outline of current problems with Allocator trait - https://shift.click/blog/allocator-trait-talk/
