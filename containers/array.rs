@@ -14,11 +14,6 @@ use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
-//   grow_amortized and grow_exact - these aren't nice nor not even good enough.
-//
-// TODO: i want to be able to set upper bound for array's growth.
-//   for example handle array's len may not exceed u32::MAX thus it's cap must be bounded by that.
-//   but this is probably too theoretical and practically will never happen?
 
 // NOTE: this is copypasted from std.
 //
@@ -184,12 +179,6 @@ impl<T, M: Memory<T>> Array<T, M> {
         unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
     }
 
-    /// SAFETY: `new_cap` must be greater then the current capacity.
-    #[inline]
-    unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError> {
-        unsafe { self.mem.grow(new_cap) }
-    }
-
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
         let cap = self.cap();
         let len = self.len();
@@ -205,7 +194,7 @@ impl<T, M: Memory<T>> Array<T, M> {
         let required_cap = len.checked_add(additional).ok_or(AllocError)?;
 
         // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.grow(required_cap) }
+        unsafe { self.mem.grow(required_cap) }
     }
 
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
@@ -229,7 +218,7 @@ impl<T, M: Memory<T>> Array<T, M> {
             .max(min_non_zero_cap(size_of::<T>()));
 
         // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.grow(amortized_cap) }
+        unsafe { self.mem.grow(amortized_cap) }
     }
 
     #[inline]
