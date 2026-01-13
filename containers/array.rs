@@ -154,7 +154,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         if Self::is_zst() {
             usize::MAX
         } else {
-            self.mem.cap()
+            self.mem.ptr().len()
         }
     }
 
@@ -171,14 +171,20 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         self.len = new_len;
     }
 
+    // NOTE: self.mem.ptr().as_ref() (where ptr is NonNull<[T]>) does not work on zsts.
+    //   but why the heck should i care about zsts in an array?
+    //   i still don't get it.
+
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.mem.as_ptr(), self.len()) }
+        let ptr = self.mem.ptr().as_ptr().cast::<T>();
+        unsafe { slice::from_raw_parts(ptr, self.len()) }
     }
 
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
+        let ptr = self.mem.ptr().as_ptr().cast::<T>();
+        unsafe { slice::from_raw_parts_mut(ptr, self.len()) }
     }
 
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
