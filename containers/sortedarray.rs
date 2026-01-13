@@ -15,7 +15,7 @@ use crate::arraymemory::{
 //   - `get` performs binary search.
 
 // NOTE: i am too lazy to duplicate majority of Array's methods in impls.
-//   feel free to use any non-mutating method of the underlying vector (0);
+//   feel free to use any non-mutating method of the underlying array(.0);
 //   but mutating it is illegal.
 
 /// you may wish to implement SortedArrayCompare if comparison logic that your SortedArray* type
@@ -31,7 +31,7 @@ impl<T: Ord> SortedArrayCompare for T {
 }
 
 // ----
-// sorted vector map
+// sorted array map
 
 pub struct SortedArrayMap<K, V, M: ArrayMemory<(K, V)>>(pub Array<(K, V), M>);
 
@@ -78,7 +78,7 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     }
 
     // ----
-    // vector deviations
+    // array deviations
 
     pub fn contains(&self, key: &K) -> bool {
         self.0.binary_search_by(|(k, _)| k.cmp(key)).is_ok()
@@ -154,7 +154,7 @@ impl<K, V, const N: usize, A: Allocator> SpillableSortedArrayMap<K, V, N, A> {
 }
 
 // ----
-// sorted vector set
+// sorted array set
 
 pub struct SortedArraySet<T, M: ArrayMemory<T>>(pub Array<T, M>);
 
@@ -198,7 +198,7 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
     }
 
     // ----
-    // vector deviations
+    // array deviations
 
     pub fn contains(&self, value: &T) -> bool {
         self.0.binary_search_by(|v| v.cmp(value)).is_ok()

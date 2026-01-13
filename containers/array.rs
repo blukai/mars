@@ -411,17 +411,16 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     }
 
     /// use [`Self::try_extend_from_iter`] for items that cannot be copied.
-    pub fn try_extend_from_slice_copy(&mut self, other: &[T]) -> Result<(), AllocError>
+    pub fn try_extend_from_slice_copy(&mut self, slice: &[T]) -> Result<(), AllocError>
     where
         T: Copy,
     {
-        let count = other.len();
-        // NOTE: std vec probably (?) does amortized reserve in this case.
-        self.try_reserve_exact(count)?;
+        let count = slice.len();
+        self.try_reserve_amortized(count)?;
         unsafe {
             self.as_mut_ptr()
                 .add(self.len())
-                .copy_from_nonoverlapping(other.as_ptr(), count)
+                .copy_from_nonoverlapping(slice.as_ptr(), count)
         };
         self.len += count;
         Ok(())
@@ -451,7 +450,14 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     where
         T: Copy,
     {
-        self.try_extend_from_slice_copy(slice)?;
+        let count = slice.len();
+        self.try_reserve_exact(count)?;
+        unsafe {
+            self.as_mut_ptr()
+                .add(self.len())
+                .copy_from_nonoverlapping(slice.as_ptr(), count)
+        };
+        self.len += count;
         Ok(self)
     }
 
