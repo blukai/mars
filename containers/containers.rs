@@ -1,8 +1,8 @@
 pub mod array;
+pub mod arraymemory;
 pub mod boxed;
 pub mod cstring;
 pub mod handlearray;
-pub mod memory;
 pub mod sortedarray;
 pub mod string;
 

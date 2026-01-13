@@ -9,8 +9,10 @@ use core::{cmp, mem, ops, ptr, slice};
 use alloc::{AllocError, Allocator};
 
 use crate::array::Array;
+use crate::arraymemory::{
+    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+};
 use crate::cstring::CString;
-use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
 ///
@@ -116,12 +118,12 @@ impl fmt::Display for FromFmtError {
     }
 }
 
-pub struct FromUtf8Error<M: Memory<u8>> {
+pub struct FromUtf8Error<M: ArrayMemory<u8>> {
     bytes: Array<u8, M>,
     error: Utf8Error,
 }
 
-impl<M: Memory<u8>> FromUtf8Error<M> {
+impl<M: ArrayMemory<u8>> FromUtf8Error<M> {
     /// returns a slice of [`u8`]s bytes that were attempted to convert to a `String`.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..]
@@ -137,15 +139,15 @@ impl<M: Memory<u8>> FromUtf8Error<M> {
     }
 }
 
-impl<M: Memory<u8>> Error for FromUtf8Error<M> {}
+impl<M: ArrayMemory<u8>> Error for FromUtf8Error<M> {}
 
-impl<M: Memory<u8>> fmt::Display for FromUtf8Error<M> {
+impl<M: ArrayMemory<u8>> fmt::Display for FromUtf8Error<M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.error, f)
     }
 }
 
-impl<M: Memory<u8>> fmt::Debug for FromUtf8Error<M> {
+impl<M: ArrayMemory<u8>> fmt::Debug for FromUtf8Error<M> {
     #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FromUtf8Error")
@@ -155,23 +157,23 @@ impl<M: Memory<u8>> fmt::Debug for FromUtf8Error<M> {
     }
 }
 
-impl<M: Memory<u8>> PartialEq for FromUtf8Error<M> {
+impl<M: ArrayMemory<u8>> PartialEq for FromUtf8Error<M> {
     fn eq(&self, other: &Self) -> bool {
         PartialEq::eq(&self.bytes, &other.bytes) && PartialEq::eq(&self.error, &other.error)
     }
 }
 
-impl<M: Memory<u8>> Eq for FromUtf8Error<M> {}
+impl<M: ArrayMemory<u8>> Eq for FromUtf8Error<M> {}
 
-pub struct String<M: Memory<u8>>(Array<u8, M>);
+pub struct String<M: ArrayMemory<u8>>(Array<u8, M>);
 
 const _: () = {
-    let this = size_of::<String<GrowableMemory<u8, alloc::Global>>>();
+    let this = size_of::<String<GrowableArrayMemory<u8, alloc::Global>>>();
     let std = size_of::<std::string::String>();
     assert!(this <= std)
 };
 
-impl<M: Memory<u8>> String<M> {
+impl<M: ArrayMemory<u8>> String<M> {
     #[inline]
     pub fn new_in(mem: M) -> Self {
         Self(Array::new_in(mem))
@@ -313,7 +315,7 @@ impl<M: Memory<u8>> String<M> {
     // NOTE: my current use case for this is to use this with temporary allocator as a fallback
     // when within cap method fails.
     #[inline]
-    pub fn try_to_c_string_in<W: Memory<u8>>(&self, mem: W) -> Result<CString<W>, AllocError> {
+    pub fn try_to_c_string_in<W: ArrayMemory<u8>>(&self, mem: W) -> Result<CString<W>, AllocError> {
         let len = self.len();
         let len_with_nul = len + 1;
         let mut data = Array::new_in(mem).try_with_cap(len_with_nul)?;
@@ -401,7 +403,7 @@ impl<M: Memory<u8>> String<M> {
     }
 }
 
-impl<M: Memory<u8>> ops::Deref for String<M> {
+impl<M: ArrayMemory<u8>> ops::Deref for String<M> {
     type Target = str;
 
     #[inline]
@@ -410,55 +412,55 @@ impl<M: Memory<u8>> ops::Deref for String<M> {
     }
 }
 
-impl<M: Memory<u8>> ops::DerefMut for String<M> {
+impl<M: ArrayMemory<u8>> ops::DerefMut for String<M> {
     #[inline]
     fn deref_mut(&mut self) -> &mut str {
         self.as_mut_str()
     }
 }
 
-impl<M: Memory<u8>> AsRef<str> for String<M> {
+impl<M: ArrayMemory<u8>> AsRef<str> for String<M> {
     #[inline]
     fn as_ref(&self) -> &str {
         self
     }
 }
 
-impl<M: Memory<u8>> AsRef<std::ffi::OsStr> for String<M> {
+impl<M: ArrayMemory<u8>> AsRef<std::ffi::OsStr> for String<M> {
     #[inline]
     fn as_ref(&self) -> &std::ffi::OsStr {
         self.as_str().as_ref()
     }
 }
 
-impl<M: Memory<u8>> AsRef<std::path::Path> for String<M> {
+impl<M: ArrayMemory<u8>> AsRef<std::path::Path> for String<M> {
     #[inline]
     fn as_ref(&self) -> &std::path::Path {
         std::path::Path::new(self)
     }
 }
 
-impl<M: Memory<u8> + Default> Default for String<M> {
+impl<M: ArrayMemory<u8> + Default> Default for String<M> {
     fn default() -> Self {
         Self::new_in(M::default())
     }
 }
 
-impl<M: Memory<u8>> fmt::Debug for String<M> {
+impl<M: ArrayMemory<u8>> fmt::Debug for String<M> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_str(), f)
     }
 }
 
-impl<M: Memory<u8>> fmt::Display for String<M> {
+impl<M: ArrayMemory<u8>> fmt::Display for String<M> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
     }
 }
 
-impl<M: Memory<u8>> fmt::Write for String<M> {
+impl<M: ArrayMemory<u8>> fmt::Write for String<M> {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.try_push_str(s).map_err(|_| fmt::Error)
@@ -482,33 +484,33 @@ macro_rules! impl_partial_eq {
     }
 }
 
-impl_partial_eq! { [M1: Memory<u8>, M2: Memory<u8>] String<M1>, String<M2> }
+impl_partial_eq! { [M1: ArrayMemory<u8>, M2: ArrayMemory<u8>] String<M1>, String<M2> }
 
-impl_partial_eq! { [M: Memory<u8>] String<M>, str }
-impl_partial_eq! { [M: Memory<u8>] String<M>, &str }
-impl_partial_eq! { [M: Memory<u8>] String<M>, std::string::String }
+impl_partial_eq! { [M: ArrayMemory<u8>] String<M>, str }
+impl_partial_eq! { [M: ArrayMemory<u8>] String<M>, &str }
+impl_partial_eq! { [M: ArrayMemory<u8>] String<M>, std::string::String }
 
-impl_partial_eq! { [M: Memory<u8>] str, String<M> }
-impl_partial_eq! { [M: Memory<u8>] &str, String<M> }
-impl_partial_eq! { [M: Memory<u8>] std::string::String, String<M> }
+impl_partial_eq! { [M: ArrayMemory<u8>] str, String<M> }
+impl_partial_eq! { [M: ArrayMemory<u8>] &str, String<M> }
+impl_partial_eq! { [M: ArrayMemory<u8>] std::string::String, String<M> }
 
-impl<M: Memory<u8>> Eq for String<M> {}
+impl<M: ArrayMemory<u8>> Eq for String<M> {}
 
-impl<M: Memory<u8>> PartialOrd for String<M> {
+impl<M: ArrayMemory<u8>> PartialOrd for String<M> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         PartialOrd::partial_cmp(self.as_str(), other.as_str())
     }
 }
 
-impl<M: Memory<u8>> Ord for String<M> {
+impl<M: ArrayMemory<u8>> Ord for String<M> {
     #[inline]
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         Ord::cmp(self.as_str(), other.as_str())
     }
 }
 
-impl<M: Memory<u8>> Hash for String<M> {
+impl<M: ArrayMemory<u8>> Hash for String<M> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(self.as_str(), state)
@@ -519,16 +521,16 @@ impl<M: Memory<u8>> Hash for String<M> {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableString<A: Allocator> = String<GrowableMemory<u8, A>>;
+pub type GrowableString<A: Allocator> = String<GrowableArrayMemory<u8, A>>;
 
 impl<A: Allocator> GrowableString<A> {
     #[inline]
     pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableMemory::new_in(alloc))
+        Self::new_in(GrowableArrayMemory::new_in(alloc))
     }
 }
 
-pub type FixedString<const N: usize> = String<FixedMemory<u8, N>>;
+pub type FixedString<const N: usize> = String<FixedArrayMemory<u8, N>>;
 
 const _: () = {
     // NOTE: max len of string + length
@@ -538,7 +540,7 @@ const _: () = {
 impl<const N: usize> FixedString<N> {
     #[inline]
     pub fn new_fixed() -> Self {
-        Self::new_in(FixedMemory::default())
+        Self::new_in(FixedArrayMemory::default())
     }
 }
 
@@ -552,12 +554,12 @@ impl<const N: usize> Clone for FixedString<N> {
 }
 
 #[expect(type_alias_bounds)]
-pub type SpillableString<const N: usize, A: Allocator> = String<SpillableMemory<u8, N, A>>;
+pub type SpillableString<const N: usize, A: Allocator> = String<SpillableArrayMemory<u8, N, A>>;
 
 impl<const N: usize, A: Allocator> SpillableString<N, A> {
     #[inline]
     pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableMemory::new_in(alloc))
+        Self::new_in(SpillableArrayMemory::new_in(alloc))
     }
 
     #[inline]
@@ -574,7 +576,7 @@ mod oom {
 
     use super::*;
 
-    impl<M: Memory<u8>> String<M> {
+    impl<M: ArrayMemory<u8>> String<M> {
         #[inline]
         pub fn reserve_exact(&mut self, additional: usize) {
             this_is_fine(self.try_reserve_exact(additional))
@@ -599,7 +601,7 @@ mod oom {
         // cstr+cstring
 
         #[inline]
-        pub fn to_c_string_in<W: Memory<u8>>(&self, mem: W) -> CString<W> {
+        pub fn to_c_string_in<W: ArrayMemory<u8>>(&self, mem: W) -> CString<W> {
             this_is_fine(self.try_to_c_string_in(mem))
         }
 
@@ -654,11 +656,11 @@ macro_rules! format {
     (try in $alloc:expr, $($arg:tt)*) => {
         $crate::string::String::try_from_format_args_in(
             format_args!($($arg)*),
-            $crate::memory::GrowableMemory::new_in($alloc),
+            $crate::arraymemory::GrowableArrayMemory::new_in($alloc),
         )
     };
     (in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::String::new_in($crate::memory::GrowableMemory::new_in($alloc))
+        $crate::string::String::new_in($crate::arraymemory::GrowableArrayMemory::new_in($alloc))
             .with_format_args(format_args!($($arg)*))
     };
 }
@@ -667,7 +669,7 @@ macro_rules! format {
 
 #[cfg(test)]
 mod tests {
-    use crate::memory::GrowableMemory;
+    use crate::arraymemory::GrowableArrayMemory;
 
     use super::*;
 
@@ -702,7 +704,7 @@ mod tests {
     fn test_try_to_c_string() {
         let string = String::new_growable_in(alloc::Global).with_str("udon");
         let c_string = string
-            .try_to_c_string_in(GrowableMemory::new_in(alloc::Global))
+            .try_to_c_string_in(GrowableArrayMemory::new_in(alloc::Global))
             .unwrap();
         assert_eq!(c_string.as_c_str(), c"udon");
         assert_eq!(c_string.to_bytes_with_nul().len(), string.len() + 1);
@@ -713,7 +715,7 @@ mod tests {
 
     #[test]
     fn test_std_push_str() {
-        let mut s = String::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut s = String::new_in(GrowableArrayMemory::new_in(alloc::Global));
         s.push_str("");
         assert_eq!(&s[0..], "");
         s.push_str("abc");
@@ -725,7 +727,7 @@ mod tests {
     #[test]
     fn test_std_push() {
         let mut data =
-            String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("ประเทศไทย中");
+            String::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_str("ประเทศไทย中");
         data.push_char('华');
         data.push_char('b'); // 1 byte
         data.push_char('¢'); // 2 byte
@@ -736,8 +738,8 @@ mod tests {
 
     #[test]
     fn test_std_pop() {
-        let mut data =
-            String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("ประเทศไทย中华b¢€𤭢");
+        let mut data = String::new_in(GrowableArrayMemory::new_in(alloc::Global))
+            .with_str("ประเทศไทย中华b¢€𤭢");
         assert_eq!(data.pop(), Some('𤭢')); // 4 bytes
         assert_eq!(data.pop(), Some('€')); // 3 bytes
         assert_eq!(data.pop(), Some('¢')); // 2 bytes
@@ -748,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_std_clear() {
-        let mut s = String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("12345");
+        let mut s = String::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_str("12345");
         s.clear();
         assert_eq!(s.len(), 0);
         assert_eq!(s, "");
@@ -756,7 +758,7 @@ mod tests {
 
     #[test]
     fn test_std_slicing() {
-        let s = String::new_in(GrowableMemory::new_in(alloc::Global)).with_str("foobar");
+        let s = String::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_str("foobar");
         assert_eq!("foobar", &s[..]);
         assert_eq!("foo", &s[..3]);
         assert_eq!("bar", &s[3..]);
