@@ -16,11 +16,6 @@ use crate::arraymemory::{
 
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
-//   grow_amortized and grow_exact - these aren't nice nor not even good enough.
-//
-// TODO: i want to be able to set upper bound for array's growth.
-//   for example handle array's len may not exceed u32::MAX thus it's cap must be bounded by that.
-//   but this is probably too theoretical and practically will never happen?
 
 // NOTE: this is copypasted from std.
 //
@@ -186,12 +181,6 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
     }
 
-    /// SAFETY: `new_cap` must be greater then the current capacity.
-    #[inline]
-    unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError> {
-        unsafe { self.mem.grow(new_cap) }
-    }
-
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
         let cap = self.cap();
         let len = self.len();
@@ -207,7 +196,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         let required_cap = len.checked_add(additional).ok_or(AllocError)?;
 
         // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.grow(required_cap) }
+        unsafe { self.mem.grow(required_cap) }
     }
 
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
@@ -231,7 +220,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
             .max(min_non_zero_cap(size_of::<T>()));
 
         // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.grow(amortized_cap) }
+        unsafe { self.mem.grow(amortized_cap) }
     }
 
     #[inline]
@@ -637,13 +626,17 @@ impl<T, M: ArrayMemory<T>> ExactSizeIterator for Drain<'_, T, M> {}
 // ----
 
 #[inline]
-fn array_clone_slow<T: Clone, M: ArrayMemory<T>>(src: &Array<T, M>, dst: &mut Array<T, M>) {
+fn try_array_clone_slow<T: Clone, M: ArrayMemory<T>>(
+    src: &Array<T, M>,
+    dst: &mut Array<T, M>,
+) -> Result<(), AllocError> {
     assert!(dst.is_empty());
     // NOTE: researve enough space to avoid reallocations that can be caused by logic
     // that extends self from iter.
-    dst.reserve_exact(src.len());
+    dst.try_reserve_exact(src.len())?;
     // TODO: @Specialization don't iter cloned copyable items, copy all at once.
     dst.extend_from_iter(src.iter().cloned());
+    Ok(())
 }
 
 // ----
@@ -676,7 +669,8 @@ impl<T, const N: usize> FixedArray<T, N> {
 impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
     fn clone(&self) -> Self {
         let mut ret = Self::new_fixed();
-        array_clone_slow(self, &mut ret);
+        // NOTE: ok to unwrap. both array's capacities are equal.
+        try_array_clone_slow(self, &mut ret).unwrap();
         ret
     }
 }
@@ -791,7 +785,7 @@ mod oom {
     impl<T: Clone, A: Allocator + Clone> Clone for GrowableArray<T, A> {
         fn clone(&self) -> Self {
             let mut ret = Self::new_growable_in(self.mem.allocator().clone());
-            array_clone_slow(self, &mut ret);
+            this_is_fine(try_array_clone_slow(self, &mut ret));
             ret
         }
     }
@@ -800,7 +794,7 @@ mod oom {
     impl<T: Clone, const N: usize, A: Allocator + Clone> Clone for SpillableArray<T, N, A> {
         fn clone(&self) -> Self {
             let mut ret = Self::new_spillable_in(self.mem.allocator().clone());
-            array_clone_slow(self, &mut ret);
+            this_is_fine(try_array_clone_slow(self, &mut ret));
             ret
         }
     }
@@ -875,7 +869,7 @@ mod tests {
 
         let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(&temp));
 
-        this.try_reserve_amortized(42).unwrap();
+        this.reserve_amortized(42);
         assert_eq!(temp.get_checkpoint().occupied, 42 * size_of::<u32>());
     }
 
@@ -885,7 +879,7 @@ mod tests {
             let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(alloc::Global));
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
-            this.try_reserve_amortized(9).unwrap();
+            this.reserve_amortized(9);
             std.reserve(9);
             assert_eq!(this.cap(), std.capacity());
         }
@@ -894,11 +888,11 @@ mod tests {
             let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(alloc::Global));
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
-            this.try_reserve_amortized(8).unwrap();
+            this.reserve_amortized(8);
             std.reserve(8);
             assert_eq!(this.cap(), std.capacity());
 
-            this.try_reserve_amortized(90).unwrap();
+            this.reserve_amortized(90);
             std.reserve(90);
             assert_eq!(this.cap(), std.capacity());
         }
