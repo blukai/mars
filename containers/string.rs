@@ -235,7 +235,6 @@ impl<M: ArrayMemory<u8>> String<M> {
     pub fn try_push_char(&mut self, c: char) -> Result<(), AllocError> {
         let len = self.len();
         let char_len = c.len_utf8();
-        // TODO(blukai): would it make more sense to reserve_exact?
         self.try_reserve_amortized(char_len)?;
         // SAFETY: just reserved capacity for at least the length needed to encode `ch`.
         unsafe {
@@ -366,15 +365,8 @@ impl<M: ArrayMemory<u8>> String<M> {
     // builder-lite with
 
     #[inline]
-    pub fn try_with_str(mut self, s: &str) -> Result<Self, AllocError> {
-        self.try_push_str(s)?;
-        Ok(self)
-    }
-
-    #[inline]
-    pub fn try_with_char(mut self, c: char) -> Result<Self, AllocError> {
-        self.try_push_char(c)?;
-        Ok(self)
+    pub fn try_with_str(self, s: &str) -> Result<Self, AllocError> {
+        self.0.try_with_slice_copy(s.as_bytes()).map(Self)
     }
 
     /// format in two passes; no overallocation.
@@ -619,11 +611,6 @@ mod oom {
         #[inline]
         pub fn with_str(self, s: &str) -> Self {
             this_is_fine(self.try_with_str(s))
-        }
-
-        #[inline]
-        pub fn with_char(self, c: char) -> Self {
-            this_is_fine(self.try_with_char(c))
         }
 
         #[inline]
