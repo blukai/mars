@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 
 use alloc::{AllocError, Allocator, Layout};
 
-pub unsafe trait Memory<T> {
+pub unsafe trait ArrayMemory<T> {
     fn as_ptr(&self) -> *const T;
     fn as_mut_ptr(&mut self) -> *mut T;
     fn cap(&self) -> usize;
@@ -17,7 +17,7 @@ pub unsafe trait Memory<T> {
 // TODO: consider renaming GrowableMemory into ReallocableMemory or something in that direction?
 //   but not HeapMemory because its Allocator may not necessarily be baked by heap.
 
-pub struct GrowableMemory<T, A: Allocator> {
+pub struct GrowableArrayMemory<T, A: Allocator> {
     ptr: NonNull<T>,
     cap: usize,
     // TODO: is there a sane way to not store alloc?
@@ -45,7 +45,7 @@ pub struct GrowableMemory<T, A: Allocator> {
     alloc: A,
 }
 
-impl<T, A: Allocator> GrowableMemory<T, A> {
+impl<T, A: Allocator> GrowableArrayMemory<T, A> {
     #[inline]
     pub fn new_in(alloc: A) -> Self {
         Self {
@@ -71,7 +71,7 @@ impl<T, A: Allocator> GrowableMemory<T, A> {
     }
 }
 
-unsafe impl<T, A: Allocator> Memory<T> for GrowableMemory<T, A> {
+unsafe impl<T, A: Allocator> ArrayMemory<T> for GrowableArrayMemory<T, A> {
     #[inline]
     fn as_ptr(&self) -> *const T {
         self.ptr.as_ptr()
@@ -113,7 +113,7 @@ unsafe impl<T, A: Allocator> Memory<T> for GrowableMemory<T, A> {
     }
 }
 
-impl<T, A: Allocator> Drop for GrowableMemory<T, A> {
+impl<T, A: Allocator> Drop for GrowableArrayMemory<T, A> {
     fn drop(&mut self) {
         let layout = unsafe { Layout::array::<T>(self.cap).unwrap_unchecked() };
         // SAFETY: even if T is zst Allocator and ptr is dangling - alloc knows how to handle that.
@@ -121,7 +121,7 @@ impl<T, A: Allocator> Drop for GrowableMemory<T, A> {
     }
 }
 
-impl<T, A: Allocator + Default> Default for GrowableMemory<T, A> {
+impl<T, A: Allocator + Default> Default for GrowableArrayMemory<T, A> {
     #[inline]
     fn default() -> Self {
         Self::new_in(A::default())
@@ -139,11 +139,11 @@ impl<T, A: Allocator + Default> Default for GrowableMemory<T, A> {
 //   statically-known size.
 
 #[repr(transparent)]
-pub struct FixedMemory<T, const N: usize> {
+pub struct FixedArrayMemory<T, const N: usize> {
     data: MaybeUninit<[T; N]>,
 }
 
-unsafe impl<T, const N: usize> Memory<T> for FixedMemory<T, N> {
+unsafe impl<T, const N: usize> ArrayMemory<T> for FixedArrayMemory<T, N> {
     #[inline]
     fn as_ptr(&self) -> *const T {
         self.data.as_ptr().cast()
@@ -165,7 +165,7 @@ unsafe impl<T, const N: usize> Memory<T> for FixedMemory<T, N> {
     }
 }
 
-impl<T, const N: usize> Default for FixedMemory<T, N> {
+impl<T, const N: usize> Default for FixedArrayMemory<T, N> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -177,20 +177,20 @@ impl<T, const N: usize> Default for FixedMemory<T, N> {
 // ----
 // spillable (fixed on stack -> spill to growable on heap)
 
-pub enum SpillableMemory<T, const N: usize, A: Allocator> {
+pub enum SpillableArrayMemory<T, const N: usize, A: Allocator> {
     // NOTE: Fixed variant holds onto A, it'll be passed to GrowableMemory on spill.
-    Fixed((FixedMemory<T, N>, A)),
-    Growable(GrowableMemory<T, A>),
+    Fixed((FixedArrayMemory<T, N>, A)),
+    Growable(GrowableArrayMemory<T, A>),
     // NOTE: Transitional variant is used as a temp value while transitioning between
     // fixed<->growable state.
     //   maybe there's a better way?
     Transitional,
 }
 
-impl<T, const N: usize, A: Allocator> SpillableMemory<T, N, A> {
+impl<T, const N: usize, A: Allocator> SpillableArrayMemory<T, N, A> {
     #[inline]
     pub fn new_in(alloc: A) -> Self {
-        Self::Fixed((FixedMemory::default(), alloc))
+        Self::Fixed((FixedArrayMemory::default(), alloc))
     }
 
     #[inline]
@@ -212,12 +212,12 @@ impl<T, const N: usize, A: Allocator> SpillableMemory<T, N, A> {
     }
 }
 
-unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N, A> {
+unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMemory<T, N, A> {
     #[inline]
     fn as_ptr(&self) -> *const T {
         match self {
-            Self::Fixed((fixed, _)) => Memory::as_ptr(fixed),
-            Self::Growable(growable) => Memory::as_ptr(growable),
+            Self::Fixed((fixed, _)) => ArrayMemory::as_ptr(fixed),
+            Self::Growable(growable) => ArrayMemory::as_ptr(growable),
             Self::Transitional => unreachable!(),
         }
     }
@@ -225,8 +225,8 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N,
     #[inline]
     fn as_mut_ptr(&mut self) -> *mut T {
         match self {
-            Self::Fixed((fixed, _)) => Memory::as_mut_ptr(fixed),
-            Self::Growable(growable) => Memory::as_mut_ptr(growable),
+            Self::Fixed((fixed, _)) => ArrayMemory::as_mut_ptr(fixed),
+            Self::Growable(growable) => ArrayMemory::as_mut_ptr(growable),
             Self::Transitional => unreachable!(),
         }
     }
@@ -234,8 +234,8 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N,
     #[inline]
     fn cap(&self) -> usize {
         match self {
-            Self::Fixed((fixed, _)) => Memory::cap(fixed),
-            Self::Growable(growable) => Memory::cap(growable),
+            Self::Fixed((fixed, _)) => ArrayMemory::cap(fixed),
+            Self::Growable(growable) => ArrayMemory::cap(growable),
             Self::Transitional => unreachable!(),
         }
     }
@@ -249,7 +249,8 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N,
                 let Self::Fixed((fixed, alloc)) = mem::replace(self, Self::Transitional) else {
                     unreachable!();
                 };
-                let mut growable = GrowableMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
+                let mut growable =
+                    GrowableArrayMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
                 unsafe {
                     growable
                         .as_mut_ptr()
@@ -258,13 +259,13 @@ unsafe impl<T, const N: usize, A: Allocator> Memory<T> for SpillableMemory<T, N,
                 *self = Self::Growable(growable);
                 Ok(())
             }
-            Self::Growable(growable) => unsafe { Memory::grow(growable, new_cap) },
+            Self::Growable(growable) => unsafe { ArrayMemory::grow(growable, new_cap) },
             Self::Transitional => unreachable!(),
         }
     }
 }
 
-impl<T, const N: usize, A: Allocator + Default> Default for SpillableMemory<T, N, A> {
+impl<T, const N: usize, A: Allocator + Default> Default for SpillableArrayMemory<T, N, A> {
     #[inline]
     fn default() -> Self {
         Self::new_in(A::default())
@@ -279,7 +280,7 @@ mod oom {
 
     use super::*;
 
-    impl<T, A: Allocator> GrowableMemory<T, A> {
+    impl<T, A: Allocator> GrowableArrayMemory<T, A> {
         #[inline]
         pub fn with_cap(self, cap: usize) -> Self {
             this_is_fine(self.try_with_cap(cap))

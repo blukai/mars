@@ -10,7 +10,9 @@ use std::io;
 use alloc::{AllocError, Allocator};
 use scopeguard::ScopeGuard;
 
-use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
+use crate::arraymemory::{
+    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+};
 
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
@@ -119,19 +121,19 @@ impl<T> fmt::Debug for InsertError<T> {
     }
 }
 
-pub struct Array<T, M: Memory<T>> {
+pub struct Array<T, M: ArrayMemory<T>> {
     mem: M,
     len: usize,
     _ty: PhantomData<T>,
 }
 
 const _: () = {
-    let this = size_of::<Array<u8, GrowableMemory<u8, alloc::Global>>>();
+    let this = size_of::<Array<u8, GrowableArrayMemory<u8, alloc::Global>>>();
     let std = size_of::<std::vec::Vec<u8>>();
     assert!(this <= std)
 };
 
-impl<T, M: Memory<T>> Array<T, M> {
+impl<T, M: ArrayMemory<T>> Array<T, M> {
     #[inline]
     const fn is_zst() -> bool {
         size_of::<T>() == 0
@@ -471,7 +473,7 @@ impl<T, M: Memory<T>> Array<T, M> {
     }
 }
 
-impl<T, M: Memory<T>> ops::Deref for Array<T, M> {
+impl<T, M: ArrayMemory<T>> ops::Deref for Array<T, M> {
     type Target = [T];
 
     #[inline]
@@ -480,27 +482,27 @@ impl<T, M: Memory<T>> ops::Deref for Array<T, M> {
     }
 }
 
-impl<T, M: Memory<T>> ops::DerefMut for Array<T, M> {
+impl<T, M: ArrayMemory<T>> ops::DerefMut for Array<T, M> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T, M: Memory<T>> Drop for Array<T, M> {
+impl<T, M: ArrayMemory<T>> Drop for Array<T, M> {
     fn drop(&mut self) {
         unsafe { ptr::slice_from_raw_parts_mut(self.as_mut_ptr(), self.len()).drop_in_place() };
     }
 }
 
-impl<T, M: Memory<T> + Default> Default for Array<T, M> {
+impl<T, M: ArrayMemory<T> + Default> Default for Array<T, M> {
     #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
     }
 }
 
-impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for Array<T, M> {
+impl<T: fmt::Debug, M: ArrayMemory<T>> fmt::Debug for Array<T, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_slice(), f)
     }
@@ -519,17 +521,17 @@ macro_rules! impl_partial_eq {
     }
 }
 
-impl_partial_eq! { [M1: Memory<T>, M2: Memory<U>] Array<T, M1>, Array<U, M2> }
+impl_partial_eq! { [M1: ArrayMemory<T>, M2: ArrayMemory<U>] Array<T, M1>, Array<U, M2> }
 
-impl_partial_eq! { [M: Memory<T>, const C: usize] Array<T, M>, [U; C] }
-impl_partial_eq! { [M: Memory<T>] Array<T, M>, [U] }
-impl_partial_eq! { [M: Memory<T>] Array<T, M>, std::vec::Vec<U> }
+impl_partial_eq! { [M: ArrayMemory<T>, const C: usize] Array<T, M>, [U; C] }
+impl_partial_eq! { [M: ArrayMemory<T>] Array<T, M>, [U] }
+impl_partial_eq! { [M: ArrayMemory<T>] Array<T, M>, std::vec::Vec<U> }
 
-impl_partial_eq! { [M: Memory<U>, const C: usize] [T; C], Array<U, M> }
-impl_partial_eq! { [M: Memory<U>] [T], Array<U, M> }
-impl_partial_eq! { [M: Memory<U>] std::vec::Vec<T>, Array<U, M> }
+impl_partial_eq! { [M: ArrayMemory<U>, const C: usize] [T; C], Array<U, M> }
+impl_partial_eq! { [M: ArrayMemory<U>] [T], Array<U, M> }
+impl_partial_eq! { [M: ArrayMemory<U>] std::vec::Vec<T>, Array<U, M> }
 
-impl<T: Hash, M: Memory<T>> Hash for Array<T, M> {
+impl<T: Hash, M: ArrayMemory<T>> Hash for Array<T, M> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(self.as_slice(), state)
@@ -537,7 +539,7 @@ impl<T: Hash, M: Memory<T>> Hash for Array<T, M> {
 }
 
 /// the array will grow as needed.
-impl<M: Memory<u8>> io::Write for Array<u8, M> {
+impl<M: ArrayMemory<u8>> io::Write for Array<u8, M> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.try_extend_from_slice_copy(buf)
@@ -568,14 +570,14 @@ impl<M: Memory<u8>> io::Write for Array<u8, M> {
     }
 }
 
-pub struct Drain<'v, T: 'v, M: Memory<T> + 'v> {
+pub struct Drain<'v, T: 'v, M: ArrayMemory<T> + 'v> {
     iter: slice::IterMut<'v, T>,
     ptr: NonNull<Array<T, M>>,
     tail_start: usize,
     tail_len: usize,
 }
 
-impl<T, M: Memory<T>> Drop for Drain<'_, T, M> {
+impl<T, M: ArrayMemory<T>> Drop for Drain<'_, T, M> {
     fn drop(&mut self) {
         // QUOTE:
         // > moves back the un-`Drain`ed items to restore the original `Vec`.
@@ -604,7 +606,7 @@ impl<T, M: Memory<T>> Drop for Drain<'_, T, M> {
     }
 }
 
-impl<T, M: Memory<T>> Iterator for Drain<'_, T, M> {
+impl<T, M: ArrayMemory<T>> Iterator for Drain<'_, T, M> {
     type Item = T;
 
     #[inline]
@@ -617,19 +619,19 @@ impl<T, M: Memory<T>> Iterator for Drain<'_, T, M> {
     }
 }
 
-impl<T, M: Memory<T>> DoubleEndedIterator for Drain<'_, T, M> {
+impl<T, M: ArrayMemory<T>> DoubleEndedIterator for Drain<'_, T, M> {
     #[inline]
     fn next_back(&mut self) -> Option<T> {
         self.iter.next_back().map(|it| unsafe { ptr::read(it) })
     }
 }
 
-impl<T, M: Memory<T>> ExactSizeIterator for Drain<'_, T, M> {}
+impl<T, M: ArrayMemory<T>> ExactSizeIterator for Drain<'_, T, M> {}
 
 // ----
 
 #[inline]
-fn array_clone_slow<T: Clone, M: Memory<T>>(src: &Array<T, M>, dst: &mut Array<T, M>) {
+fn array_clone_slow<T: Clone, M: ArrayMemory<T>>(src: &Array<T, M>, dst: &mut Array<T, M>) {
     assert!(dst.is_empty());
     // NOTE: researve enough space to avoid reallocations that can be caused by logic
     // that extends self from iter.
@@ -642,16 +644,16 @@ fn array_clone_slow<T: Clone, M: Memory<T>>(src: &Array<T, M>, dst: &mut Array<T
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableArray<T, A: Allocator> = Array<T, GrowableMemory<T, A>>;
+pub type GrowableArray<T, A: Allocator> = Array<T, GrowableArrayMemory<T, A>>;
 
 impl<T, A: Allocator> GrowableArray<T, A> {
     #[inline]
     pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableMemory::new_in(alloc))
+        Self::new_in(GrowableArrayMemory::new_in(alloc))
     }
 }
 
-pub type FixedArray<T, const N: usize> = Array<T, FixedMemory<T, N>>;
+pub type FixedArray<T, const N: usize> = Array<T, FixedArrayMemory<T, N>>;
 
 const _: () = {
     // NOTE: max len of string + length
@@ -661,7 +663,7 @@ const _: () = {
 impl<T, const N: usize> FixedArray<T, N> {
     #[inline]
     pub fn new_fixed() -> Self {
-        Self::new_in(FixedMemory::default())
+        Self::new_in(FixedArrayMemory::default())
     }
 }
 
@@ -674,12 +676,12 @@ impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
 }
 
 #[expect(type_alias_bounds)]
-pub type SpillableArray<T, const N: usize, A: Allocator> = Array<T, SpillableMemory<T, N, A>>;
+pub type SpillableArray<T, const N: usize, A: Allocator> = Array<T, SpillableArrayMemory<T, N, A>>;
 
 impl<T, const N: usize, A: Allocator> SpillableArray<T, N, A> {
     #[inline]
     pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableMemory::new_in(alloc))
+        Self::new_in(SpillableArrayMemory::new_in(alloc))
     }
 
     #[inline]
@@ -696,7 +698,7 @@ mod oom {
 
     use super::*;
 
-    impl<T, M: Memory<T>> Array<T, M> {
+    impl<T, M: ArrayMemory<T>> Array<T, M> {
         #[inline]
         pub fn reserve_exact(&mut self, additional: usize) {
             this_is_fine(self.try_reserve_exact(additional))
@@ -810,7 +812,7 @@ mod tests {
 
     #[test]
     fn test_push() {
-        let mut this = Array::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this = Array::<u32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
         this.push(8);
         this.push(16);
         assert_eq!(this, [8, 16]);
@@ -819,7 +821,7 @@ mod tests {
     #[test]
     fn test_pop() {
         let mut this =
-            Array::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global)).with_array([8, 16]);
+            Array::<u32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([8, 16]);
         assert_eq!(this.pop(), Some(16));
         assert_eq!(this.pop(), Some(8));
         assert_eq!(this.pop(), None);
@@ -828,33 +830,34 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let mut this = Array::new_in(GrowableMemory::new_in(alloc::Global)).with_array([1, 2, 3]);
+        let mut this =
+            Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([1, 2, 3]);
         assert_eq!(this.remove(0), Some(1));
         assert_eq!(this.remove(2), None);
 
-        let mut this = Array::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this = Array::<u32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
         assert!(this.remove(0).is_none());
     }
 
     #[test]
     fn test_index() {
         let this =
-            Array::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global)).with_array([8, 16]);
+            Array::<u32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([8, 16]);
         assert_eq!(this[0], 8);
         assert_eq!(this[1], 16);
     }
 
     #[test]
     fn test_drain() {
-        let mut a = Array::new_in(GrowableMemory::new_in(alloc::Global)).with_array([8, 16]);
-        let b = Array::new_in(GrowableMemory::new_in(alloc::Global)).with_iter(a.drain(..));
+        let mut a = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([8, 16]);
+        let b = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_iter(a.drain(..));
         assert_eq!(a, []);
         assert_eq!(b, [8, 16]);
     }
 
     #[test]
     fn test_insert() {
-        let mut this = Array::new_in(GrowableMemory::new_in(alloc::Global)).with_array([16]);
+        let mut this = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([16]);
         this.insert(0, 8);
         assert_eq!(this, [8, 16]);
     }
@@ -864,7 +867,7 @@ mod tests {
         let mut temp_data = [0; 1000];
         let temp = alloc::TempAllocator::new(&mut temp_data);
 
-        let mut this: Array<u32, _> = Array::new_in(GrowableMemory::new_in(&temp));
+        let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(&temp));
 
         this.try_reserve_amortized(42).unwrap();
         assert_eq!(temp.get_checkpoint().occupied, 42 * size_of::<u32>());
@@ -873,7 +876,7 @@ mod tests {
     #[test]
     fn test_matches_std_reserve_amortized_strategy() {
         {
-            let mut this: Array<u32, _> = Array::new_in(GrowableMemory::new_in(alloc::Global));
+            let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(alloc::Global));
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
             this.try_reserve_amortized(9).unwrap();
@@ -882,7 +885,7 @@ mod tests {
         }
 
         {
-            let mut this: Array<u32, _> = Array::new_in(GrowableMemory::new_in(alloc::Global));
+            let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(alloc::Global));
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
             this.try_reserve_amortized(8).unwrap();
@@ -903,7 +906,7 @@ mod tests {
         #[derive(Clone, Copy)]
         struct ZST;
 
-        let mut this: Array<ZST, _> = Array::new_in(GrowableMemory::new_in(&temp));
+        let mut this: Array<ZST, _> = Array::new_in(GrowableArrayMemory::new_in(&temp));
         let mut std: std::vec::Vec<ZST> = std::vec::Vec::new();
 
         this.extend_from_iter(iter::repeat_n(ZST, 101));
@@ -942,7 +945,7 @@ mod tests {
         let mut temp_data = [0; 1000];
         let temp = alloc::TempAllocator::new(&mut temp_data);
 
-        let mut this = SpillableArray::new_in(SpillableMemory::<u32, 2, _>::new_in(&temp));
+        let mut this = SpillableArray::new_in(SpillableArrayMemory::<u32, 2, _>::new_in(&temp));
         assert!(this.try_push(8).is_ok());
         assert!(this.try_push(16).is_ok());
         assert!(!this.is_spilled());
@@ -966,7 +969,7 @@ mod tests {
             }
         }
 
-        struct TwoArrays<T, M: Memory<T>> {
+        struct TwoArrays<T, M: ArrayMemory<T>> {
             x: Array<T, M>,
             y: Array<T, M>,
         }
@@ -974,8 +977,8 @@ mod tests {
         let (mut count_x, mut count_y) = (0, 0);
         {
             let mut tv = TwoArrays {
-                x: Array::new_in(GrowableMemory::new_in(alloc::Global)),
-                y: Array::new_in(GrowableMemory::new_in(alloc::Global)),
+                x: Array::new_in(GrowableArrayMemory::new_in(alloc::Global)),
+                y: Array::new_in(GrowableArrayMemory::new_in(alloc::Global)),
             };
             tv.x.push(DropCounter {
                 count: &mut count_x,
@@ -1002,7 +1005,7 @@ mod tests {
 
         struct_with_counted_drop!(D(u32, bool), DROPS => |this: &D| if this.1 { panic!("panic in `drop`"); });
 
-        let mut v = Array::new_in(GrowableMemory::new_in(alloc::Global)).with_array([
+        let mut v = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([
             D(0, false),
             D(1, false),
             D(2, false),
@@ -1025,7 +1028,7 @@ mod tests {
     fn test_std_truncate_drop() {
         struct_with_counted_drop!(Elem(i32), DROPS);
 
-        let mut v = Array::new_in(GrowableMemory::new_in(alloc::Global)).with_array([
+        let mut v = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([
             Elem(1),
             Elem(2),
             Elem(3),
@@ -1042,9 +1045,9 @@ mod tests {
 
     #[test]
     fn test_std_clone() {
-        let v = Array::<i32, _>::new_in(GrowableMemory::new_in(alloc::Global));
-        let w =
-            Array::new_in(GrowableMemory::<i32, _>::new_in(alloc::Global)).with_array([1, 2, 3]);
+        let v = Array::<i32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
+        let w = Array::new_in(GrowableArrayMemory::<i32, _>::new_in(alloc::Global))
+            .with_array([1, 2, 3]);
 
         assert_eq!(v, v.clone());
 

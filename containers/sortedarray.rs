@@ -4,7 +4,9 @@ use core::fmt;
 use alloc::{AllocError, Allocator};
 
 use crate::array::{Array, InsertError, InsertErrorKind};
-use crate::memory::{FixedMemory, GrowableMemory, Memory, SpillableMemory};
+use crate::arraymemory::{
+    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+};
 
 // NOTE: this can be used instead of hashmap.
 //   good for small number of pairs.
@@ -31,16 +33,16 @@ impl<T: Ord> SortedArrayCompare for T {
 // ----
 // sorted vector map
 
-pub struct SortedArrayMap<K, V, M: Memory<(K, V)>>(pub Array<(K, V), M>);
+pub struct SortedArrayMap<K, V, M: ArrayMemory<(K, V)>>(pub Array<(K, V), M>);
 
-impl<K, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
+impl<K, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     #[inline]
     pub fn new_in(mem: M) -> Self {
         Self(Array::new_in(mem))
     }
 }
 
-impl<K: SortedArrayCompare, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
+impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, InsertError<(K, V)>> {
         let index = self
             .0
@@ -97,14 +99,14 @@ impl<K: SortedArrayCompare, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
     }
 }
 
-impl<K, V, M: Memory<(K, V)> + Default> Default for SortedArrayMap<K, V, M> {
+impl<K, V, M: ArrayMemory<(K, V)> + Default> Default for SortedArrayMap<K, V, M> {
     #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
     }
 }
 
-impl<K: fmt::Debug, V: fmt::Debug, M: Memory<(K, V)>> fmt::Debug for SortedArrayMap<K, V, M> {
+impl<K: fmt::Debug, V: fmt::Debug, M: ArrayMemory<(K, V)>> fmt::Debug for SortedArrayMap<K, V, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.0.as_slice(), f)
     }
@@ -115,21 +117,22 @@ impl<K: fmt::Debug, V: fmt::Debug, M: Memory<(K, V)>> fmt::Debug for SortedArray
 
 #[expect(type_alias_bounds)]
 pub type GrowableSortedArrayMap<K, V, A: Allocator> =
-    SortedArrayMap<K, V, GrowableMemory<(K, V), A>>;
+    SortedArrayMap<K, V, GrowableArrayMemory<(K, V), A>>;
 
 impl<K, V, A: Allocator> GrowableSortedArrayMap<K, V, A> {
     #[inline]
     pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableMemory::new_in(alloc))
+        Self::new_in(GrowableArrayMemory::new_in(alloc))
     }
 }
 
-pub type FixedSortedArrayMap<K, V, const N: usize> = SortedArrayMap<K, V, FixedMemory<(K, V), N>>;
+pub type FixedSortedArrayMap<K, V, const N: usize> =
+    SortedArrayMap<K, V, FixedArrayMemory<(K, V), N>>;
 
 impl<K, V, const N: usize> FixedSortedArrayMap<K, V, N> {
     #[inline]
     pub fn new_fixed() -> Self {
-        Self::new_in(FixedMemory::default())
+        Self::new_in(FixedArrayMemory::default())
     }
 }
 
@@ -141,28 +144,28 @@ impl<K: Clone, V: Clone, const N: usize> Clone for FixedSortedArrayMap<K, V, N> 
 
 #[expect(type_alias_bounds)]
 pub type SpillableSortedArrayMap<K, V, const N: usize, A: Allocator> =
-    SortedArrayMap<K, V, SpillableMemory<(K, V), N, A>>;
+    SortedArrayMap<K, V, SpillableArrayMemory<(K, V), N, A>>;
 
 impl<K, V, const N: usize, A: Allocator> SpillableSortedArrayMap<K, V, N, A> {
     #[inline]
     pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableMemory::new_in(alloc))
+        Self::new_in(SpillableArrayMemory::new_in(alloc))
     }
 }
 
 // ----
 // sorted vector set
 
-pub struct SortedArraySet<T, M: Memory<T>>(pub Array<T, M>);
+pub struct SortedArraySet<T, M: ArrayMemory<T>>(pub Array<T, M>);
 
-impl<T, M: Memory<T>> SortedArraySet<T, M> {
+impl<T, M: ArrayMemory<T>> SortedArraySet<T, M> {
     #[inline]
     pub fn new_in(mem: M) -> Self {
         Self(Array::new_in(mem))
     }
 }
 
-impl<T: SortedArrayCompare, M: Memory<T>> SortedArraySet<T, M> {
+impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
     pub fn try_insert(&mut self, value: T) -> Result<Option<T>, InsertError<T>> {
         let index = self
             .0
@@ -202,14 +205,14 @@ impl<T: SortedArrayCompare, M: Memory<T>> SortedArraySet<T, M> {
     }
 }
 
-impl<T, M: Memory<T> + Default> Default for SortedArraySet<T, M> {
+impl<T, M: ArrayMemory<T> + Default> Default for SortedArraySet<T, M> {
     #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
     }
 }
 
-impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for SortedArraySet<T, M> {
+impl<T: fmt::Debug, M: ArrayMemory<T>> fmt::Debug for SortedArraySet<T, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.0.as_slice(), f)
     }
@@ -219,21 +222,21 @@ impl<T: fmt::Debug, M: Memory<T>> fmt::Debug for SortedArraySet<T, M> {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableSortedArraySet<T, A: Allocator> = SortedArraySet<T, GrowableMemory<T, A>>;
+pub type GrowableSortedArraySet<T, A: Allocator> = SortedArraySet<T, GrowableArrayMemory<T, A>>;
 
 impl<T, A: Allocator> GrowableSortedArraySet<T, A> {
     #[inline]
     pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableMemory::new_in(alloc))
+        Self::new_in(GrowableArrayMemory::new_in(alloc))
     }
 }
 
-pub type FixedSortedArraySet<T, const N: usize> = SortedArraySet<T, FixedMemory<T, N>>;
+pub type FixedSortedArraySet<T, const N: usize> = SortedArraySet<T, FixedArrayMemory<T, N>>;
 
 impl<T, const N: usize> FixedSortedArraySet<T, N> {
     #[inline]
     pub fn new_fixed() -> Self {
-        Self::new_in(FixedMemory::default())
+        Self::new_in(FixedArrayMemory::default())
     }
 }
 
@@ -245,12 +248,12 @@ impl<T: Clone, const N: usize> Clone for FixedSortedArraySet<T, N> {
 
 #[expect(type_alias_bounds)]
 pub type SpillableSortedArraySet<T, const N: usize, A: Allocator> =
-    SortedArraySet<T, SpillableMemory<T, N, A>>;
+    SortedArraySet<T, SpillableArrayMemory<T, N, A>>;
 
 impl<T, const N: usize, A: Allocator> SpillableSortedArraySet<T, N, A> {
     #[inline]
     pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableMemory::new_in(alloc))
+        Self::new_in(SpillableArrayMemory::new_in(alloc))
     }
 }
 
@@ -262,7 +265,7 @@ mod oom {
 
     use super::*;
 
-    impl<K: SortedArrayCompare, V, M: Memory<(K, V)>> SortedArrayMap<K, V, M> {
+    impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
         pub fn insert(&mut self, key: K, value: V) {
             match self.try_insert(key, value) {
                 Ok(..) => {}
@@ -294,7 +297,7 @@ mod oom {
         }
     }
 
-    impl<T: SortedArrayCompare, M: Memory<T>> SortedArraySet<T, M> {
+    impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         pub fn insert(&mut self, value: T) {
             match self.try_insert(value) {
                 Ok(..) => {}
@@ -335,7 +338,8 @@ mod tests {
 
     #[test]
     fn test_map_insert() {
-        let mut this = SortedArrayMap::<u32, (), _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this =
+            SortedArrayMap::<u32, (), _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
         this.insert(42, ());
         this.insert(64, ());
         this.insert(64, ());
@@ -345,8 +349,9 @@ mod tests {
 
     #[test]
     fn test_map_get() {
-        let mut this =
-            SortedArrayMap::<u32, &'static str, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this = SortedArrayMap::<u32, &'static str, _>::new_in(GrowableArrayMemory::new_in(
+            alloc::Global,
+        ));
         this.insert(0, "zero");
         this.insert(8, "hachi");
         this.insert(16, "juuroku");
@@ -355,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_set_insert() {
-        let mut this = SortedArraySet::<u32, _>::new_in(GrowableMemory::new_in(alloc::Global));
+        let mut this = SortedArraySet::<u32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
         this.insert(64);
         this.insert(42);
         this.insert(27);
@@ -366,7 +371,7 @@ mod tests {
     #[test]
     fn test_set_contains() {
         let mut this =
-            SortedArraySet::<&'static str, _>::new_in(GrowableMemory::new_in(alloc::Global));
+            SortedArraySet::<&'static str, _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
         this.insert("zero");
         this.insert("hachi");
         this.insert("juuroku");
