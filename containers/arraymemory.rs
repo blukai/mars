@@ -3,9 +3,34 @@ use core::ptr::NonNull;
 
 use alloc::{AllocError, Allocator, Layout};
 
+// TODO: think about how to do better job at growing.
+//   maybe with some kind of GrowthStrategy?
+
+// NOTE: this is copypasted from std.
+//
+// Tiny Vecs are dumb. Skip to:
+// - 8 if the item size is 1, because any heap allocator is likely
+//   to round up a request of less than 8 bytes to at least 8 bytes.
+// - 4 if items are moderate-sized (<= 1 KiB).
+// - 1 otherwise, to avoid wasting too much space for very short Vecs.
+const fn min_non_zero_cap(size: usize) -> usize {
+    if size == 1 {
+        8
+    } else if size <= 1024 {
+        4
+    } else {
+        1
+    }
+}
+
+pub enum GrowMode {
+    Exact,
+    Amortized,
+}
+
 pub unsafe trait ArrayMemory<T> {
     fn ptr(&self) -> NonNull<[T]>;
-    unsafe fn grow(&mut self, new_len: usize) -> Result<(), AllocError>;
+    fn grow(&mut self, new_cap: usize, mode: GrowMode) -> Result<(), AllocError>;
     // TODO: Memory will also need srink method.
 }
 
@@ -58,11 +83,7 @@ impl<T, A: Allocator> GrowableArrayMemory<T, A> {
 
     #[inline]
     pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
-        // TODO: should with_cap resize (grow/shrink)?
-        assert_eq!(self.ptr.len(), 0);
-        if cap > 0 {
-            unsafe { self.grow(cap)? };
-        }
+        self.grow(cap, GrowMode::Exact)?;
         Ok(self)
     }
 }
@@ -73,27 +94,39 @@ unsafe impl<T, A: Allocator> ArrayMemory<T> for GrowableArrayMemory<T, A> {
         self.ptr
     }
 
-    /// SAFETY: `new_cap` must be greater then the current capacity.
     #[inline]
-    unsafe fn grow(&mut self, new_len: usize) -> Result<(), AllocError> {
-        let old_len = self.ptr.len();
+    fn grow(&mut self, new_cap: usize, mode: GrowMode) -> Result<(), AllocError> {
+        // NOTE: array's capacity is `usize::MAX` for zsts.
+        if size_of::<T>() == 0 {
+            return Err(AllocError);
+        }
 
-        // NOTE: this must be ensured by the caller.
-        debug_assert!(new_len > old_len);
-        // TODO: do i need to do anything special for zsts here? array handles them and they don't
-        // propagate here.
-        debug_assert!(size_of::<T>() > 0);
+        let old_cap = self.ptr.len();
+        if new_cap <= old_cap {
+            return Ok(());
+        }
 
-        let new_layout = Layout::array::<T>(new_len).map_err(|_| AllocError)?;
-        let new_ptr = if old_len > 0 {
-            let old_layout = unsafe { Layout::array::<T>(old_len).unwrap_unchecked() };
+        let new_cap = match mode {
+            GrowMode::Exact => new_cap,
+            GrowMode::Amortized => {
+                new_cap
+                    // NOTE: the doubling cannot overflow because `cap <= isize::MAX`.
+                    //   `Layout::array` upholds this.
+                    .max(old_cap * 2)
+                    .max(min_non_zero_cap(size_of::<T>()))
+            }
+        };
+
+        let new_layout = Layout::array::<T>(new_cap).map_err(|_| AllocError)?;
+        let new_ptr = if old_cap > 0 {
+            let old_layout = unsafe { Layout::array::<T>(old_cap).unwrap_unchecked() };
             debug_assert_eq!(old_layout.align(), new_layout.align());
             let new_ptr = unsafe { self.alloc.grow(self.ptr.cast(), old_layout, new_layout) }?;
-            let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_len);
+            let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_cap);
             new_ptr
         } else {
             let new_ptr = self.alloc.allocate(new_layout)?;
-            let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_len);
+            let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_cap);
             new_ptr
         };
 
@@ -143,8 +176,12 @@ unsafe impl<T, const N: usize> ArrayMemory<T> for FixedArrayMemory<T, N> {
     }
 
     #[inline]
-    unsafe fn grow(&mut self, _new_cap: usize) -> Result<(), AllocError> {
-        Err(AllocError)
+    fn grow(&mut self, new_cap: usize, _mode: GrowMode) -> Result<(), AllocError> {
+        if new_cap <= N {
+            Ok(())
+        } else {
+            Err(AllocError)
+        }
     }
 }
 
@@ -205,16 +242,18 @@ unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMe
         }
     }
 
-    unsafe fn grow(&mut self, new_len: usize) -> Result<(), AllocError> {
-        // NOTE: this assert here just for documentation purposes.
-        debug_assert!(new_len > self.ptr().len());
-
+    fn grow(&mut self, new_cap: usize, mode: GrowMode) -> Result<(), AllocError> {
         match self {
             Self::Fixed(..) => {
+                // NOTE: we don't want to spill over if we don't need to regardless the mode.
+                if new_cap <= N {
+                    return Ok(());
+                }
+
                 let Self::Fixed((fixed, alloc)) = mem::replace(self, Self::Transitional) else {
                     unreachable!();
                 };
-                let growable = GrowableArrayMemory::<T, A>::new_in(alloc).try_with_cap(new_len)?;
+                let growable = GrowableArrayMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
                 unsafe {
                     growable
                         .ptr()
@@ -224,7 +263,7 @@ unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMe
                 *self = Self::Growable(growable);
                 Ok(())
             }
-            Self::Growable(growable) => unsafe { ArrayMemory::grow(growable, new_len) },
+            Self::Growable(growable) => ArrayMemory::grow(growable, new_cap, mode),
             Self::Transitional => unreachable!(),
         }
     }

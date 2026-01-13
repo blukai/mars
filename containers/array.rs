@@ -11,28 +11,8 @@ use alloc::{AllocError, Allocator};
 use scopeguard::ScopeGuard;
 
 use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+    ArrayMemory, FixedArrayMemory, GrowMode, GrowableArrayMemory, SpillableArrayMemory,
 };
-
-// TODO: think about how to do better job at growing.
-//   maybe with some kind of GrowthStrategy?
-
-// NOTE: this is copypasted from std.
-//
-// Tiny Vecs are dumb. Skip to:
-// - 8 if the item size is 1, because any heap allocator is likely
-//   to round up a request of less than 8 bytes to at least 8 bytes.
-// - 4 if items are moderate-sized (<= 1 KiB).
-// - 1 otherwise, to avoid wasting too much space for very short Vecs.
-const fn min_non_zero_cap(size: usize) -> usize {
-    if size == 1 {
-        8
-    } else if size <= 1024 {
-        4
-    } else {
-        1
-    }
-}
 
 // TODO: get rid of this when `slice_range` feature is stable.
 fn try_range_from_bounds<R>(range: R, bounds: ops::RangeTo<usize>) -> Option<ops::Range<usize>>
@@ -188,45 +168,13 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     }
 
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
-        let cap = self.cap();
-        let len = self.len();
-
-        if cap - len >= additional {
-            return Ok(());
-        }
-
-        if Self::is_zst() {
-            return Err(AllocError);
-        }
-
-        let required_cap = len.checked_add(additional).ok_or(AllocError)?;
-
-        // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.mem.grow(required_cap) }
+        let new_cap = self.len().checked_add(additional).ok_or(AllocError)?;
+        self.mem.grow(new_cap, GrowMode::Exact)
     }
 
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
-        let cap = self.cap();
-        let len = self.len();
-
-        if cap - len >= additional {
-            return Ok(());
-        }
-
-        if Self::is_zst() {
-            // NOTE: the capacity is already `usize::MAX` for zsts.
-            return Err(AllocError);
-        }
-
-        let required_cap = len.checked_add(additional).ok_or(AllocError)?;
-        let amortized_cap = required_cap
-            // NOTE: the doubling cannot overflow because `cap <= isize::MAX`.
-            //   `Layout::array` upholds this.
-            .max(cap * 2)
-            .max(min_non_zero_cap(size_of::<T>()));
-
-        // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.mem.grow(amortized_cap) }
+        let new_cap = self.len().checked_add(additional).ok_or(AllocError)?;
+        self.mem.grow(new_cap, GrowMode::Amortized)
     }
 
     #[inline]
