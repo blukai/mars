@@ -12,6 +12,7 @@ use scopeguard::ScopeGuard;
 
 use crate::arraymemory::{
     ArrayMemory, FixedArrayMemory, GrowMode, GrowableArrayMemory, SpillableArrayMemory,
+    default_relocate,
 };
 
 // TODO: get rid of this when `slice_range` feature is stable.
@@ -167,14 +168,17 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         unsafe { slice::from_raw_parts_mut(ptr, self.len()) }
     }
 
+    fn try_reserve(&mut self, additional: usize, mode: GrowMode) -> Result<(), AllocError> {
+        let maybe_new_cap = self.len().checked_add(additional).ok_or(AllocError)?;
+        self.mem.grow(maybe_new_cap, mode, default_relocate)
+    }
+
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
-        let new_cap = self.len().checked_add(additional).ok_or(AllocError)?;
-        self.mem.grow(new_cap, GrowMode::Exact)
+        self.try_reserve(additional, GrowMode::Exact)
     }
 
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
-        let new_cap = self.len().checked_add(additional).ok_or(AllocError)?;
-        self.mem.grow(new_cap, GrowMode::Amortized)
+        self.try_reserve(additional, GrowMode::Amortized)
     }
 
     #[inline]

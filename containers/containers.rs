@@ -1,4 +1,5 @@
 pub mod array;
+pub mod arraydeque;
 pub mod arraymemory;
 pub mod boxed;
 pub mod cstring;

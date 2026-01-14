@@ -28,9 +28,24 @@ pub enum GrowMode {
     Amortized,
 }
 
+pub trait RelocateFn<T>: FnMut(/* old_ptr */ NonNull<[T]>, /* new_ptr */ NonNull<[T]>) {}
+impl<T, U> RelocateFn<T> for U where U: FnMut(NonNull<[T]>, NonNull<[T]>) {}
+
+#[inline]
+pub fn default_relocate<T>(old_ptr: NonNull<[T]>, new_ptr: NonNull<[T]>) {
+    debug_assert!(new_ptr.len() >= old_ptr.len());
+    unsafe {
+        new_ptr
+            .cast::<T>()
+            .copy_from_nonoverlapping(old_ptr.cast::<T>(), old_ptr.len())
+    }
+}
+
 pub unsafe trait ArrayMemory<T> {
     fn ptr(&self) -> NonNull<[T]>;
-    fn grow(&mut self, new_cap: usize, mode: GrowMode) -> Result<(), AllocError>;
+    fn grow<R>(&mut self, new_cap: usize, mode: GrowMode, relocate: R) -> Result<(), AllocError>
+    where
+        R: RelocateFn<T>;
     // TODO: Memory will also need srink method.
 }
 
@@ -83,7 +98,7 @@ impl<T, A: Allocator> GrowableArrayMemory<T, A> {
 
     #[inline]
     pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
-        self.grow(cap, GrowMode::Exact)?;
+        self.grow(cap, GrowMode::Exact, default_relocate)?;
         Ok(self)
     }
 }
@@ -95,7 +110,10 @@ unsafe impl<T, A: Allocator> ArrayMemory<T> for GrowableArrayMemory<T, A> {
     }
 
     #[inline]
-    fn grow(&mut self, new_cap: usize, mode: GrowMode) -> Result<(), AllocError> {
+    fn grow<R>(&mut self, new_cap: usize, mode: GrowMode, mut relocate: R) -> Result<(), AllocError>
+    where
+        R: RelocateFn<T>,
+    {
         // NOTE: array's capacity is `usize::MAX` for zsts.
         if size_of::<T>() == 0 {
             return Err(AllocError);
@@ -108,30 +126,30 @@ unsafe impl<T, A: Allocator> ArrayMemory<T> for GrowableArrayMemory<T, A> {
 
         let new_cap = match mode {
             GrowMode::Exact => new_cap,
-            GrowMode::Amortized => {
-                new_cap
-                    // NOTE: the doubling cannot overflow because `cap <= isize::MAX`.
-                    //   `Layout::array` upholds this.
-                    .max(old_cap * 2)
-                    .max(min_non_zero_cap(size_of::<T>()))
-            }
+            GrowMode::Amortized => new_cap
+                // NOTE: the doubling cannot overflow because `cap <= isize::MAX`.
+                //   `Layout::array` upholds this.
+                .max(old_cap * 2)
+                .max(min_non_zero_cap(size_of::<T>())),
         };
-
         let new_layout = Layout::array::<T>(new_cap).map_err(|_| AllocError)?;
         let new_ptr = if old_cap > 0 {
+            let new_ptr = self.alloc.allocate(new_layout)?;
+            let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_cap);
+
+            relocate(self.ptr, new_ptr);
+
             let old_layout = unsafe { Layout::array::<T>(old_cap).unwrap_unchecked() };
             debug_assert_eq!(old_layout.align(), new_layout.align());
-            let new_ptr = unsafe { self.alloc.grow(self.ptr.cast(), old_layout, new_layout) }?;
-            let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_cap);
+            unsafe { self.alloc.deallocate(self.ptr.cast(), old_layout) };
+
             new_ptr
         } else {
             let new_ptr = self.alloc.allocate(new_layout)?;
             let new_ptr = NonNull::slice_from_raw_parts(new_ptr.cast::<T>(), new_cap);
             new_ptr
         };
-
         self.ptr = new_ptr;
-
         Ok(())
     }
 }
@@ -176,7 +194,10 @@ unsafe impl<T, const N: usize> ArrayMemory<T> for FixedArrayMemory<T, N> {
     }
 
     #[inline]
-    fn grow(&mut self, new_cap: usize, _mode: GrowMode) -> Result<(), AllocError> {
+    fn grow<R>(&mut self, new_cap: usize, _mode: GrowMode, _relocate: R) -> Result<(), AllocError>
+    where
+        R: RelocateFn<T>,
+    {
         if new_cap <= N {
             Ok(())
         } else {
@@ -242,28 +263,25 @@ unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMe
         }
     }
 
-    fn grow(&mut self, new_cap: usize, mode: GrowMode) -> Result<(), AllocError> {
+    fn grow<R>(&mut self, new_cap: usize, mode: GrowMode, mut relocate: R) -> Result<(), AllocError>
+    where
+        R: RelocateFn<T>,
+    {
         match self {
             Self::Fixed(..) => {
                 // NOTE: we don't want to spill over if we don't need to regardless the mode.
                 if new_cap <= N {
                     return Ok(());
                 }
-
                 let Self::Fixed((fixed, alloc)) = mem::replace(self, Self::Transitional) else {
                     unreachable!();
                 };
                 let growable = GrowableArrayMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
-                unsafe {
-                    growable
-                        .ptr()
-                        .cast::<T>()
-                        .copy_from_nonoverlapping(fixed.ptr().cast::<T>(), N)
-                };
+                relocate(fixed.ptr(), growable.ptr());
                 *self = Self::Growable(growable);
                 Ok(())
             }
-            Self::Growable(growable) => ArrayMemory::grow(growable, new_cap, mode),
+            Self::Growable(growable) => ArrayMemory::grow(growable, new_cap, mode, relocate),
             Self::Transitional => unreachable!(),
         }
     }
