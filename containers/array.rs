@@ -17,6 +17,11 @@ use crate::arraymemory::{
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
 
+enum ReserveMode {
+    Exact,
+    Amortized,
+}
+
 // NOTE: this is copypasted from std.
 //
 // Tiny Vecs are dumb. Skip to:
@@ -181,25 +186,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
     }
 
-    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
-        let cap = self.cap();
-        let len = self.len();
-
-        if cap - len >= additional {
-            return Ok(());
-        }
-
-        if Self::is_zst() {
-            return Err(AllocError);
-        }
-
-        let required_cap = len.checked_add(additional).ok_or(AllocError)?;
-
-        // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.mem.grow(required_cap) }
-    }
-
-    pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
+    fn try_reserve(&mut self, additional: usize, mode: ReserveMode) -> Result<(), AllocError> {
         let cap = self.cap();
         let len = self.len();
 
@@ -212,15 +199,26 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
             return Err(AllocError);
         }
 
-        let required_cap = len.checked_add(additional).ok_or(AllocError)?;
-        let amortized_cap = required_cap
-            // NOTE: the doubling cannot overflow because `cap <= isize::MAX`.
-            //   `Layout::array` upholds this.
-            .max(cap * 2)
-            .max(min_non_zero_cap(size_of::<T>()));
+        let new_cap = len.checked_add(additional).ok_or(AllocError)?;
+        let new_cap = match mode {
+            ReserveMode::Exact => new_cap,
+            ReserveMode::Amortized => new_cap
+                // NOTE: the doubling cannot overflow because `cap <= isize::MAX`. `Layout::array`
+                // upholds this.
+                .max(cap * 2)
+                .max(min_non_zero_cap(size_of::<T>())),
+        };
 
         // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.mem.grow(amortized_cap) }
+        unsafe { self.mem.grow(new_cap) }
+    }
+
+    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
+        self.try_reserve(additional, ReserveMode::Exact)
+    }
+
+    pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
+        self.try_reserve(additional, ReserveMode::Amortized)
     }
 
     #[inline]
