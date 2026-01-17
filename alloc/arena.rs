@@ -8,7 +8,7 @@ use crate::{AllocError, Allocator, Layout, align_up, ptr_is_aligned_to};
 pub const ARENA_DEFAULT_MIN_REGION_CAP: usize = 8 << 20;
 
 const HEADER_SIZE: usize = size_of::<Region>();
-const HEADER_ALIGN: usize = size_of::<Region>();
+const HEADER_ALIGN: usize = align_of::<Region>();
 
 #[non_exhaustive]
 pub struct ArenaCheckpoint(
