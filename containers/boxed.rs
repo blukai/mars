@@ -4,7 +4,7 @@ use core::{fmt, ops, slice};
 
 use alloc::{AllocError, Allocator, Layout};
 
-pub struct Box<T: ?Sized, A: Allocator = alloc::Global> {
+pub struct Box<T: ?Sized, A: Allocator> {
     ptr: NonNull<T>,
     alloc: A,
 }
