@@ -48,7 +48,7 @@ impl<A: Allocator> ArenaAllocator<A> {
         self
     }
 
-    fn allocate_region(&self, min_size: usize) -> Result<NonNull<Region>, AllocError> {
+    fn allocate_region(&self, min_size: usize) -> Result<*mut Region, AllocError> {
         unsafe {
             let cap = min_size.max(self.min_region_size);
             let size_including_header = cap + HEADER_SIZE;
@@ -60,7 +60,7 @@ impl<A: Allocator> ArenaAllocator<A> {
             region.cap = cap;
             region.next = null_mut();
 
-            Ok(memory.cast())
+            Ok(region)
         }
     }
 
@@ -76,8 +76,8 @@ impl<A: Allocator> ArenaAllocator<A> {
                 let Ok(head) = self.allocate_region(layout.size()) else {
                     return null_mut();
                 };
-                self.head.set(head.as_ptr());
-                self.curr.set(head.as_ptr());
+                self.head.set(head);
+                self.curr.set(head);
                 self.curr_occupied.set(0);
             }
 
@@ -109,7 +109,7 @@ impl<A: Allocator> ArenaAllocator<A> {
                     let Ok(next) = self.allocate_region(layout.size()) else {
                         return null_mut();
                     };
-                    curr.next = next.as_ptr();
+                    curr.next = next;
                     curr.next
                 };
                 self.curr.set(next);
@@ -123,9 +123,9 @@ impl<A: Allocator> ArenaAllocator<A> {
         self.curr_occupied.set(0);
     }
 
-    pub fn is_this_your_memory(&self, memory: NonNull<u8>) -> bool {
+    pub fn is_this_your_memory(&self, memory: *const u8) -> bool {
         unsafe {
-            let addr = memory.addr().get();
+            let addr = memory.addr();
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
                 let start = (region as *const _ as *const u8).addr() + HEADER_SIZE;
