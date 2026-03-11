@@ -123,7 +123,7 @@ impl<A: Allocator> ArenaAllocator<A> {
         self.curr_occupied.set(0);
     }
 
-    pub fn is_this_your_memory(&self, memory: *const u8) -> bool {
+    pub fn is_this_your_memory<T>(&self, memory: *const T) -> bool {
         unsafe {
             let addr = memory.addr();
             let mut cursor = self.head.get();
