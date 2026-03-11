@@ -155,7 +155,7 @@ impl<A: Allocator> ArenaAllocator<A> {
         }
     }
 
-    pub fn get_checkpoint(&self) -> ArenaCheckpoint {
+    pub fn make_checkpoint(&self) -> ArenaCheckpoint {
         ArenaCheckpoint((self.curr.get(), self.curr_occupied.get()))
     }
 
@@ -169,9 +169,8 @@ impl<A: Allocator> ArenaAllocator<A> {
         self.curr_occupied.set(occupied);
     }
 
-    // TODO: consider renaming this to auto_checkpoint or scope_checkpoint or something.
-    pub fn scope_guard(&self) -> ScopeGuard<(), impl FnOnce(())> {
-        let checkpoint = self.get_checkpoint();
+    pub fn checkpoint(&self) -> ScopeGuard<(), impl FnOnce(())> {
+        let checkpoint = self.make_checkpoint();
         ScopeGuard::new(move || self.reset_to_checkpoint(checkpoint))
     }
 }
@@ -285,7 +284,7 @@ mod tests {
         let arena = ArenaAllocator::<crate::Global>::default();
         let layout = Layout::from_size_align(64, 8).unwrap();
         let _p1 = arena.allocate(layout);
-        let checkpoint = arena.get_checkpoint();
+        let checkpoint = arena.make_checkpoint();
         let p2 = arena.allocate(layout);
         arena.reset_to_checkpoint(checkpoint);
         let p3 = arena.allocate(layout);
@@ -297,7 +296,7 @@ mod tests {
         let arena = ArenaAllocator::<crate::Global>::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let _p1 = arena.allocate(layout);
-        let checkpoint = arena.get_checkpoint();
+        let checkpoint = arena.make_checkpoint();
         let p2 = arena.allocate(layout);
         arena.reset_to_checkpoint(checkpoint);
         let p3 = arena.allocate(layout);

@@ -868,7 +868,7 @@ mod tests {
         let mut this: Array<u32, _> = Array::new_in(GrowableArrayMemory::new_in(&temp));
 
         this.reserve_amortized(42);
-        assert_eq!(temp.get_checkpoint().occupied, 42 * size_of::<u32>());
+        assert_eq!(temp.make_checkpoint().occupied, 42 * size_of::<u32>());
     }
 
     #[test]

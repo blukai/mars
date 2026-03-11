@@ -101,8 +101,7 @@ impl<'data> TempAllocator<'data> {
         ret
     }
 
-    // TODO: rename TempAllocator's get_checkpoint to make_checkpoint.
-    pub fn get_checkpoint(&self) -> TempCheckpoint {
+    pub fn make_checkpoint(&self) -> TempCheckpoint {
         TempCheckpoint {
             occupied: self.occupied.get(),
         }
@@ -113,9 +112,8 @@ impl<'data> TempAllocator<'data> {
         self.occupied.replace(checkpoint.occupied);
     }
 
-    // TODO: consider renaming this to auto_checkpoint or scope_checkpoint or something.
-    pub fn scope_guard(&self) -> ScopeGuard<(), impl FnOnce(())> {
-        let checkpoint = self.get_checkpoint();
+    pub fn checkpoint(&self) -> ScopeGuard<(), impl FnOnce(())> {
+        let checkpoint = self.make_checkpoint();
         ScopeGuard::new(move || self.reset_to_checkpoint(checkpoint))
     }
 
@@ -154,14 +152,14 @@ mod tests {
         // normal type
         {
             temp.allocate(Layout::new::<u64>());
-            assert_eq!(temp.get_checkpoint().occupied, size_of::<u64>());
+            assert_eq!(temp.make_checkpoint().occupied, size_of::<u64>());
             temp.reset();
         }
 
         // zero-sized type
         {
             temp.allocate(Layout::new::<()>());
-            assert_eq!(temp.get_checkpoint().occupied, size_of::<()>());
+            assert_eq!(temp.make_checkpoint().occupied, size_of::<()>());
             temp.reset();
         }
     }
@@ -169,22 +167,16 @@ mod tests {
     #[test]
     fn test_alignment() {
         for align in [2, 4, 8, 16, 32, 64] {
-            let mut temp_memory = {
-                let temp_layout = Layout::array::<u8>(1 << 20).unwrap();
-                scopeguard::ScopeGuard::new_with_data(
-                    crate::Global.allocate(temp_layout).unwrap(),
-                    move |temp_memory| unsafe {
-                        crate::Global.deallocate(temp_memory.cast(), temp_layout)
-                    },
-                )
-            };
-            let temp = TempAllocator::new(unsafe { (*temp_memory).as_mut() });
+            let temp_layout = Layout::array::<u8>(1 << 20).unwrap();
+            let mut temp_memory = crate::Global.allocate(temp_layout).unwrap();
+            let temp = TempAllocator::new(unsafe { temp_memory.as_mut() });
             let layout = Layout::from_size_align(align, align).unwrap();
             for _ in 0..1024 {
                 let ptr = temp.allocate(layout);
                 assert!(!ptr.is_null());
                 assert_eq!(ptr.align_offset(align), 0);
             }
+            unsafe { crate::Global.deallocate(temp_memory.cast(), temp_layout) };
         }
     }
 }
