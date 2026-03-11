@@ -101,6 +101,7 @@ impl<'data> TempAllocator<'data> {
         ret
     }
 
+    // TODO: rename TempAllocator's get_checkpoint to make_checkpoint.
     pub fn get_checkpoint(&self) -> TempCheckpoint {
         TempCheckpoint {
             occupied: self.occupied.get(),

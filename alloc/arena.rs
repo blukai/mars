@@ -5,7 +5,7 @@ use scopeguard::ScopeGuard;
 
 use crate::{AllocError, Allocator, Layout, align_up, ptr_is_aligned_to};
 
-pub const ARENA_DEFAULT_MIN_REGION_CAP: usize = 8 << 20;
+pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 
 const HEADER_SIZE: usize = size_of::<Region>();
 const HEADER_ALIGN: usize = align_of::<Region>();
@@ -24,31 +24,37 @@ struct Region {
 // TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
 //
 // TODO: should ArenaAllocator's alignment be configurable (MIN_ALIGN generic param)?
-pub struct ArenaAllocator<A: Allocator, const MIN_REGION_CAP: usize = ARENA_DEFAULT_MIN_REGION_CAP>
-{
-    alloc: A,
+pub struct ArenaAllocator<A: Allocator> {
+    region_alloc: A,
+    min_region_size: usize,
     head: Cell<*mut Region>,
     curr: Cell<*mut Region>,
     curr_occupied: Cell<usize>,
 }
 
-impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP> {
-    pub const fn new_in(alloc: A) -> Self {
+impl<A: Allocator> ArenaAllocator<A> {
+    pub const fn new_in(region_alloc: A) -> Self {
         Self {
-            alloc,
+            region_alloc,
+            min_region_size: ARENA_DEFAULT_MIN_REGION_SIZE,
             head: Cell::new(null_mut()),
             curr: Cell::new(null_mut()),
             curr_occupied: Cell::new(0),
         }
     }
 
+    pub const fn with_min_region_size(mut self, min_region_size: usize) -> Self {
+        self.min_region_size = min_region_size;
+        self
+    }
+
     fn allocate_region(&self, min_size: usize) -> Result<NonNull<Region>, AllocError> {
         unsafe {
-            let cap = min_size.max(MIN_REGION_CAP);
+            let cap = min_size.max(self.min_region_size);
             let size_including_header = cap + HEADER_SIZE;
             // NOTE: Layout must be synced with what's in drop().
             let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
-            let memory = self.alloc.allocate(layout)?;
+            let memory = self.region_alloc.allocate(layout)?;
 
             let region = memory.cast::<Region>().as_mut();
             region.cap = cap;
@@ -170,7 +176,7 @@ impl<A: Allocator, const MIN_REGION_CAP: usize> ArenaAllocator<A, MIN_REGION_CAP
     }
 }
 
-impl<A: Allocator, const MIN_REGION_CAP: usize> Drop for ArenaAllocator<A, MIN_REGION_CAP> {
+impl<A: Allocator> Drop for ArenaAllocator<A> {
     fn drop(&mut self) {
         unsafe {
             let mut cursor = self.head.get();
@@ -180,25 +186,21 @@ impl<A: Allocator, const MIN_REGION_CAP: usize> Drop for ArenaAllocator<A, MIN_R
                 let size_including_header = region.cap + HEADER_SIZE;
                 // NOTE: Layout must be synced with what's in allocate_region().
                 let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
-                self.alloc
+                self.region_alloc
                     .deallocate(NonNull::from_mut(region).cast(), layout);
             }
         }
     }
 }
 
-impl<A: Allocator + Default, const MIN_REGION_CAP: usize> Default
-    for ArenaAllocator<A, MIN_REGION_CAP>
-{
+impl<A: Allocator + Default> Default for ArenaAllocator<A> {
     #[inline]
     fn default() -> Self {
         Self::new_in(A::default())
     }
 }
 
-unsafe impl<A: Allocator, const MIN_REGION_CAP: usize> Allocator
-    for ArenaAllocator<A, MIN_REGION_CAP>
-{
+unsafe impl<A: Allocator> Allocator for ArenaAllocator<A> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         let data = self.allocate(layout);
         NonNull::new(ptr::slice_from_raw_parts_mut(data, layout.size())).ok_or(AllocError)
@@ -215,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_arena() {
-        let arena = ArenaAllocator::<crate::Global, 1024>::default();
+        let arena = ArenaAllocator::<crate::Global>::default();
         let layout = Layout::from_size_align(100, 8).unwrap();
         let p1 = arena.allocate(layout);
         let p2 = arena.allocate(layout);
@@ -254,8 +256,9 @@ mod tests {
 
         let ca = CountingAllocator::new();
         {
-            let arena = ArenaAllocator::<_, 1024>::new_in(&ca);
-            let layout = Layout::from_size_align(900, 8).unwrap();
+            const MIN_REGION_SIZE: usize = 1000;
+            let arena = ArenaAllocator::new_in(&ca).with_min_region_size(MIN_REGION_SIZE);
+            let layout = Layout::from_size_align(MIN_REGION_SIZE / 2 + 2, 8).unwrap();
             let _p1 = arena.allocate(layout);
             let _p2 = arena.allocate(layout);
         }
@@ -265,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_post_reset_region_reuse() {
-        let arena = ArenaAllocator::<crate::Global, 1024>::default();
+        let arena = ArenaAllocator::<crate::Global>::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let p1 = arena.allocate(layout);
         let p2 = arena.allocate(layout);
@@ -279,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_same_region_reset() {
-        let arena = ArenaAllocator::<crate::Global, 1024>::default();
+        let arena = ArenaAllocator::<crate::Global>::default();
         let layout = Layout::from_size_align(64, 8).unwrap();
         let _p1 = arena.allocate(layout);
         let checkpoint = arena.get_checkpoint();
@@ -291,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_multi_region_reset() {
-        let arena = ArenaAllocator::<crate::Global, 1024>::default();
+        let arena = ArenaAllocator::<crate::Global>::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let _p1 = arena.allocate(layout);
         let checkpoint = arena.get_checkpoint();
@@ -304,7 +307,7 @@ mod tests {
     #[test]
     fn test_alignment() {
         for align in [2, 4, 8, 16, 32, 64] {
-            let arena = ArenaAllocator::<crate::Global, 4096>::default();
+            let arena = ArenaAllocator::<crate::Global>::default();
             let layout = Layout::from_size_align(align, align).unwrap();
             for _ in 0..1024 {
                 let ptr = arena.allocate(layout);
