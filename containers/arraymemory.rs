@@ -1,7 +1,8 @@
+use core::alloc::Layout;
 use core::mem::{self, MaybeUninit};
 use core::ptr::NonNull;
 
-use alloc::{AllocError, Allocator, Layout};
+use alloc::{AllocError, Allocator};
 
 pub unsafe trait ArrayMemory<T> {
     fn as_ptr(&self) -> *const T;

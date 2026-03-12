@@ -1,10 +1,11 @@
+use core::alloc::Layout;
 use core::cell::Cell;
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull, null_mut};
 
 use scopeguard::ScopeGuard;
 
-use crate::{AllocError, Allocator, Layout, align_up, ptr_is_aligned_to};
+use crate::{AllocError, Allocator, align_up, ptr_is_aligned_to};
 
 #[non_exhaustive]
 pub struct TempCheckpoint {

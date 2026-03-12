@@ -1,8 +1,9 @@
+use core::alloc::Layout;
 use core::mem::{ManuallyDrop, MaybeUninit};
 use core::ptr::NonNull;
 use core::{fmt, ops, slice};
 
-use alloc::{AllocError, Allocator, Layout};
+use alloc::{AllocError, Allocator};
 
 pub struct Box<T: ?Sized, A: Allocator> {
     ptr: NonNull<T>,

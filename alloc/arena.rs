@@ -1,9 +1,10 @@
+use core::alloc::Layout;
 use core::cell::Cell;
 use core::ptr::{self, NonNull, null_mut};
 
 use scopeguard::ScopeGuard;
 
-use crate::{AllocError, Allocator, Layout, align_up, ptr_is_aligned_to};
+use crate::{AllocError, Allocator, align_up, ptr_is_aligned_to};
 
 pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 
