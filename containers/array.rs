@@ -1,7 +1,7 @@
 use core::error::Error;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
-use core::mem::{self, MaybeUninit};
+use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ptr::{self, NonNull};
 use core::slice;
 use core::{fmt, ops};
@@ -13,6 +13,7 @@ use scopeguard::ScopeGuard;
 use crate::arraymemory::{
     ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
 };
+use crate::boxed::Box;
 
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
@@ -648,6 +649,17 @@ impl<T, A: Allocator> GrowableArray<T, A> {
     pub fn new_growable_in(alloc: A) -> Self {
         Self::new_in(GrowableArrayMemory::new_in(alloc))
     }
+
+    // ----
+    // into
+
+    pub unsafe fn into_boxed_slice_assume_full(self) -> Box<[T], A> {
+        debug_assert_eq!(self.len(), self.cap());
+        let mut this = ManuallyDrop::new(self);
+        unsafe { Box::from_raw_in(this.as_mut_slice(), ptr::read(this.mem.allocator())) }
+    }
+
+    // pub fn into_boxed_slice_maybe_shrink(self) -> boxed::Box<[T], A> { todo!() }
 }
 
 pub type FixedArray<T, const N: usize> = Array<T, FixedArrayMemory<T, N>>;
@@ -1053,5 +1065,12 @@ mod tests {
         assert_eq!(w, z);
         // they should be disjoint in memory.
         assert!(w.as_ptr() != z.as_ptr())
+    }
+
+    #[test]
+    fn test_into_boxed_slice() {
+        let xs = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([1, 2, 3]);
+        let ys = unsafe { xs.into_boxed_slice_assume_full() };
+        assert_eq!(&*ys, [1, 2, 3]);
     }
 }

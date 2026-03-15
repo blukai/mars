@@ -12,6 +12,7 @@ use crate::array::Array;
 use crate::arraymemory::{
     ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
 };
+use crate::boxed::Box;
 use crate::cstring::CString;
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
@@ -520,6 +521,20 @@ impl<A: Allocator> GrowableString<A> {
     pub fn new_growable_in(alloc: A) -> Self {
         Self::new_in(GrowableArrayMemory::new_in(alloc))
     }
+
+    // ----
+    // into
+
+    pub unsafe fn into_boxed_str_assume_full(self) -> Box<str, A> {
+        debug_assert_eq!(self.len(), self.cap());
+        unsafe {
+            let boxed_slice = self.0.into_boxed_slice_assume_full();
+            let (ptr, alloc) = Box::into_raw_with_alloc(boxed_slice);
+            Box::from_raw_in(ptr as *mut str, alloc)
+        }
+    }
+
+    // pub fn into_boxed_slice_maybe_shrink(self) -> boxed::Box<[T], A> { todo!() }
 }
 
 pub type FixedString<const N: usize> = String<FixedArrayMemory<u8, N>>;
@@ -750,5 +765,13 @@ mod tests {
         assert_eq!("foo", &s[..3]);
         assert_eq!("bar", &s[3..]);
         assert_eq!("oob", &s[1..4]);
+    }
+
+    #[test]
+    fn test_into_boxed_str() {
+        let xs = String::new_in(GrowableArrayMemory::new_in(alloc::Global))
+            .with_str("hello my name is bob");
+        let ys = unsafe { xs.into_boxed_str_assume_full() };
+        assert_eq!(&*ys, "hello my name is bob");
     }
 }
