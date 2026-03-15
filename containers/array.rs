@@ -275,7 +275,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         }
     }
 
-    pub fn remove(&mut self, index: usize) -> Option<T> {
+    pub fn remove_ordered(&mut self, index: usize) -> Option<T> {
         let len = self.len();
         // TODO: might want to introduce RemoveError (to be able to indicate oob).
         if index >= len {
@@ -827,14 +827,14 @@ mod tests {
     }
 
     #[test]
-    fn test_remove() {
+    fn test_remove_ordered() {
         let mut this =
             Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([1, 2, 3]);
-        assert_eq!(this.remove(0), Some(1));
-        assert_eq!(this.remove(2), None);
+        assert_eq!(this.remove_ordered(0), Some(1));
+        assert_eq!(this.remove_ordered(2), None);
 
         let mut this = Array::<u32, _>::new_in(GrowableArrayMemory::new_in(alloc::Global));
-        assert!(this.remove(0).is_none());
+        assert!(this.remove_ordered(0).is_none());
     }
 
     #[test]
