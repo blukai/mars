@@ -1,5 +1,5 @@
 ----
-@BlindDerive
+:BlindDerive
   when you derive a trait (e.g., `Clone`) on a generic type, the derive just
   assumes that all the generic parameters must be `Clone`. ofthen that is a valid
   idea, but sometimes not.
@@ -8,7 +8,7 @@
   - https://rgbcu.be/blog/derive-broken
 
 ----
-@TryCloneIn
+:TryCloneIn
   there's no checked (/ not oomable) standard cloning mechanism. see:
   - https://github.com/rust-lang/wg-allocators/issues/15#issuecomment-542885461
 
@@ -21,8 +21,9 @@ TODO:
   - improve rangealloc (see TODOs all around it)
   - get rid of NonNull. it does nothing really, except it adds friction.
   - arrays and strings need to be capable of shrinking (shrink_to_fit)
-  - arrays and strings need to be convertible to box
 
 ----
   - good overview of different array variants - https://azmr.uk/dyn/
   - good outline of current problems with Allocator trait - https://shift.click/blog/allocator-trait-talk/
+  - good stuff - https://bluuewhale.github.io/posts/concurrent-hashmap-designs/
+    all popular rust crates do sharding; they wrap hashbrown or std hashtable.

@@ -134,7 +134,7 @@ pub struct Handle<T> {
     type_marker: PhantomData<T>,
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> fmt::Debug for Handle<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Handle")
@@ -145,7 +145,7 @@ impl<T> fmt::Debug for Handle<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Clone for Handle<T> {
     #[inline]
     fn clone(&self) -> Self {
@@ -153,10 +153,10 @@ impl<T> Clone for Handle<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Copy for Handle<T> {}
 
-// @BlindDerive
+// :BlindDerive
 impl<T> PartialEq for Handle<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -164,10 +164,10 @@ impl<T> PartialEq for Handle<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Eq for Handle<T> {}
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Hash for Handle<T> {
     // NOTE: this is very non collision free hash
     #[inline]
@@ -177,7 +177,7 @@ impl<T> Hash for Handle<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Default for Handle<T> {
     #[inline]
     fn default() -> Self {
@@ -336,7 +336,7 @@ pub struct HandleArray<T, A: Allocator> {
     free_head: Option<u32>,
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T, A: Allocator + Default> Default for HandleArray<T, A> {
     fn default() -> Self {
         Self {

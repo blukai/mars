@@ -89,7 +89,7 @@ impl<T> fmt::Debug for NoHasher<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Default for NoHasher<T> {
     #[inline]
     fn default() -> Self {
@@ -97,7 +97,7 @@ impl<T> Default for NoHasher<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Clone for NoHasher<T> {
     #[inline]
     fn clone(&self) -> Self {
@@ -105,7 +105,7 @@ impl<T> Clone for NoHasher<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> Copy for NoHasher<T> {}
 
 pub type NoBuildHasher<T> = BuildHasherDefault<NoHasher<T>>;

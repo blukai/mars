@@ -85,7 +85,7 @@ impl<T> fmt::Display for PushError<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> fmt::Debug for PushError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
@@ -115,7 +115,7 @@ impl<T> fmt::Display for InsertError<T> {
     }
 }
 
-// @BlindDerive
+// :BlindDerive
 impl<T> fmt::Debug for InsertError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
@@ -633,7 +633,7 @@ fn try_array_clone_slow<T: Clone, M: ArrayMemory<T>>(
     // NOTE: researve enough space to avoid reallocations that can be caused by logic
     // that extends self from iter.
     dst.try_reserve_exact(src.len())?;
-    // TODO: @Specialization don't iter cloned copyable items, copy all at once.
+    // TODO: :Specialization don't iter cloned copyable items, copy all at once.
     dst.extend_from_iter(src.iter().cloned());
     Ok(())
 }
@@ -791,7 +791,7 @@ mod oom {
         }
     }
 
-    // @TryCloneIn
+    // :TryCloneIn
     impl<T: Clone, A: Allocator + Clone> Clone for GrowableArray<T, A> {
         fn clone(&self) -> Self {
             let mut ret = Self::new_growable_in(self.mem.allocator().clone());
@@ -800,7 +800,7 @@ mod oom {
         }
     }
 
-    // @TryCloneIn
+    // :TryCloneIn
     impl<T: Clone, const N: usize, A: Allocator + Clone> Clone for SpillableArray<T, N, A> {
         fn clone(&self) -> Self {
             let mut ret = Self::new_spillable_in(self.mem.allocator().clone());
