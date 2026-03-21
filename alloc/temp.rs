@@ -56,6 +56,7 @@ pub struct TempCheckpoint {
 //   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
 //
 // TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
+#[derive(Debug)]
 pub struct TempAllocator<'data> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;

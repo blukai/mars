@@ -25,6 +25,7 @@ struct Region {
 // TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
 //
 // TODO: should ArenaAllocator's alignment be configurable (MIN_ALIGN generic param)?
+#[derive(Debug)]
 pub struct ArenaAllocator<A: Allocator> {
     region_alloc: A,
     min_region_size: usize,
