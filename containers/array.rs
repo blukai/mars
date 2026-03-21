@@ -504,9 +504,9 @@ impl<T: fmt::Debug, M: ArrayMemory<T>> fmt::Debug for Array<T, M> {
 
 macro_rules! impl_partial_eq {
     ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
-        impl<T, U, $($vars)*> PartialEq<$rhs> for $lhs
+        impl<T1, T2, $($vars)*> PartialEq<$rhs> for $lhs
         where
-            T: PartialEq<U>,
+            T1: PartialEq<T2>,
             $($ty: $bound)?
         {
             #[inline]
@@ -515,15 +515,15 @@ macro_rules! impl_partial_eq {
     }
 }
 
-impl_partial_eq! { [M1: ArrayMemory<T>, M2: ArrayMemory<U>] Array<T, M1>, Array<U, M2> }
+impl_partial_eq! { [M1: ArrayMemory<T1>, M2: ArrayMemory<T2>] Array<T1, M1>, Array<T2, M2> }
 
-impl_partial_eq! { [M: ArrayMemory<T>, const C: usize] Array<T, M>, [U; C] }
-impl_partial_eq! { [M: ArrayMemory<T>] Array<T, M>, [U] }
-impl_partial_eq! { [M: ArrayMemory<T>] Array<T, M>, std::vec::Vec<U> }
+impl_partial_eq! { [M: ArrayMemory<T1>, const C: usize] Array<T1, M>, [T2; C] }
+impl_partial_eq! { [M: ArrayMemory<T1>] Array<T1, M>, [T2] }
+impl_partial_eq! { [M: ArrayMemory<T1>] Array<T1, M>, std::vec::Vec<T2> }
 
-impl_partial_eq! { [M: ArrayMemory<U>, const C: usize] [T; C], Array<U, M> }
-impl_partial_eq! { [M: ArrayMemory<U>] [T], Array<U, M> }
-impl_partial_eq! { [M: ArrayMemory<U>] std::vec::Vec<T>, Array<U, M> }
+impl_partial_eq! { [M: ArrayMemory<T2>, const C: usize] [T1; C], Array<T2, M> }
+impl_partial_eq! { [M: ArrayMemory<T2>] [T1], Array<T2, M> }
+impl_partial_eq! { [M: ArrayMemory<T2>] std::vec::Vec<T1>, Array<T2, M> }
 
 impl<T: Hash, M: ArrayMemory<T>> Hash for Array<T, M> {
     #[inline]

@@ -112,6 +112,26 @@ impl<K: fmt::Debug, V: fmt::Debug, M: ArrayMemory<(K, V)>> fmt::Debug for Sorted
     }
 }
 
+// NOTE: this macro is similar what would be an equivalent in the underlying array.
+//   i did a macro thing because i may want to impl partial eq not only for direct comparison, but
+//   for other rhs variants (same as array has).
+macro_rules! impl_partial_eq_for_map {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
+        impl<K1, V1, K2, V2, $($vars)*> PartialEq<$rhs> for $lhs
+        where
+            (K1, V1): PartialEq<(K2, V2)>,
+            $($ty: $bound)?
+        {
+            #[inline]
+            fn eq(&self, other: &$rhs) -> bool { self.0[..] == other.0[..] }
+        }
+    }
+}
+
+impl_partial_eq_for_map! {
+    [M1: ArrayMemory<(K1, V1)>, M2: ArrayMemory<(K2, V2)>] SortedArrayMap<K1, V1, M1>, SortedArrayMap<K2, V2, M2>
+}
+
 // ----
 // aliases and their makers below
 
@@ -257,6 +277,26 @@ impl<T, const N: usize, A: Allocator> SpillableSortedArraySet<T, N, A> {
     }
 }
 
+// NOTE: this macro is similar what would be an equivalent in the underlying array.
+//   i did a macro thing because i may want to impl partial eq not only for direct comparison, but
+//   for other rhs variants (same as array has).
+macro_rules! impl_partial_eq_for_set {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
+        impl<T1, T2, $($vars)*> PartialEq<$rhs> for $lhs
+        where
+            T1: PartialEq<T2>,
+            $($ty: $bound)?
+        {
+            #[inline]
+            fn eq(&self, other: &$rhs) -> bool { self.0[..] == other.0[..] }
+        }
+    }
+}
+
+impl_partial_eq_for_set! {
+    [M1: ArrayMemory<T1>, M2: ArrayMemory<T2>] SortedArraySet<T1, M1>, SortedArraySet<T2, M2>
+}
+
 // ----
 
 #[cfg(not(no_global_oom_handling))]
@@ -297,6 +337,22 @@ mod oom {
         }
     }
 
+    // :TryCloneIn
+    impl<K: Clone, V: Clone, A: Allocator + Clone> Clone for GrowableSortedArrayMap<K, V, A> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    // :TryCloneIn
+    impl<K: Clone, V: Clone, const N: usize, A: Allocator + Clone> Clone
+        for SpillableSortedArrayMap<K, V, N, A>
+    {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
     impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         pub fn insert(&mut self, value: T) {
             match self.try_insert(value) {
@@ -326,6 +382,20 @@ mod oom {
         #[inline]
         pub fn with_iter<I: Iterator<Item = T>>(self, iter: I) -> Self {
             this_is_fine(self.try_with_iter(iter))
+        }
+    }
+
+    // :TryCloneIn
+    impl<T: Clone, A: Allocator + Clone> Clone for GrowableSortedArraySet<T, A> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    // :TryCloneIn
+    impl<T: Clone, const N: usize, A: Allocator + Clone> Clone for SpillableSortedArraySet<T, N, A> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
         }
     }
 }
