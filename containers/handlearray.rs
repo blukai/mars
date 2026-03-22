@@ -119,7 +119,7 @@ impl AnyHandle {
     }
 
     #[inline]
-    pub fn as_erased(&self) -> ErasedHandle {
+    pub fn to_erased(&self) -> ErasedHandle {
         ErasedHandle {
             index: self.index,
             generation: self.generation,
@@ -218,7 +218,7 @@ impl<T> Handle<T> {
     }
 
     #[inline]
-    pub fn as_erased(&self) -> ErasedHandle {
+    pub fn to_erased(&self) -> ErasedHandle {
         ErasedHandle {
             index: self.index,
             generation: self.generation,
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn test_erased_handle_roundtrip() {
         let handle = Handle::<()>::new(42, Generation::new());
-        let erased_handle = handle.as_erased();
+        let erased_handle = handle.to_erased();
         let reconstructed = Handle::<()>::from_erased(erased_handle);
         assert_eq!(reconstructed, handle);
     }
