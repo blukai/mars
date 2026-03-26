@@ -318,7 +318,8 @@ impl<M: ArrayMemory<u8>> String<M> {
     pub fn try_to_c_string_in<W: ArrayMemory<u8>>(&self, mem: W) -> Result<CString<W>, AllocError> {
         let len = self.len();
         let len_with_nul = len + 1;
-        let mut data = Array::new_in(mem).try_with_cap(len_with_nul)?;
+        let mut data = Array::new_in(mem);
+        data.try_reserve_exact(len_with_nul)?;
         // SAFETY: just reserved needed capacity ^.
         unsafe {
             // TODO: maybe consider making something like Array::extend_from_slice_copy_unchecked?
