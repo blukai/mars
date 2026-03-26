@@ -3,9 +3,11 @@
 //   that support allocator-api2.
 pub use allocator_api2::alloc::{AllocError, Allocator, Global, System};
 pub use arena::*;
+pub use erased::*;
 pub use temp::*;
 
 mod arena;
+mod erased;
 mod temp;
 
 #[inline]

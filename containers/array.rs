@@ -3,8 +3,7 @@ use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ptr::{self, NonNull};
-use core::slice;
-use core::{fmt, ops};
+use core::{fmt, ops, slice};
 use std::io;
 
 use alloc::{AllocError, Allocator};
@@ -414,6 +413,8 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         Ok(())
     }
 
+    // TODO: extend from array
+
     // ----
     // builder-lite
 
@@ -465,6 +466,10 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         self.len = C;
         Ok(self)
     }
+
+    // TODO: i don't quite actually like the unorthogonality of extend_from_* and with_*
+    //   it's kind of cool that with_* do exact allocs, while extend_from_* do amortized allocs -
+    //   but maybe there's a better way of achieving that?
 }
 
 impl<T, M: ArrayMemory<T>> ops::Deref for Array<T, M> {
