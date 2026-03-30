@@ -418,12 +418,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     // ----
     // builder-lite with
 
-    pub fn try_with_iter<I: Iterator<Item = T>>(mut self, iter: I) -> Result<Self, AllocError> {
-        self.try_extend_from_iter(iter)?;
-        Ok(self)
-    }
-
-    /// use [`Self::try_with_iter`] for items that cannot be copied.
+    /// you need an iterator for items that cannot be copied (but can be cloned).
     pub fn try_with_slice_copy(mut self, slice: &[T]) -> Result<Self, AllocError>
     where
         T: Copy,
@@ -759,11 +754,6 @@ mod oom {
         // builder-lite with
 
         #[inline]
-        pub fn with_iter<I: Iterator<Item = T>>(self, iter: I) -> Self {
-            this_is_fine(self.try_with_iter(iter))
-        }
-
-        #[inline]
         pub fn with_slice_copy(self, slice: &[T]) -> Self
         where
             T: Copy,
@@ -846,7 +836,8 @@ mod tests {
     #[test]
     fn test_drain() {
         let mut a = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_array([8, 16]);
-        let b = Array::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_iter(a.drain(..));
+        let mut b = Array::new_in(GrowableArrayMemory::new_in(alloc::Global));
+        b.extend_from_iter(a.drain(..));
         assert_eq!(a, []);
         assert_eq!(b, [8, 16]);
     }

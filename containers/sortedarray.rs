@@ -67,17 +67,6 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     }
 
     // ----
-    // builder-lite with
-
-    pub fn try_with_iter<I: Iterator<Item = (K, V)>>(
-        mut self,
-        iter: I,
-    ) -> Result<Self, AllocError> {
-        self.try_extend_from_iter(iter)?;
-        Ok(self)
-    }
-
-    // ----
     // array deviations
 
     pub fn contains(&self, key: &K) -> bool {
@@ -210,14 +199,6 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
     }
 
     // ----
-    // builder-lite with
-
-    pub fn try_with_iter<I: Iterator<Item = T>>(mut self, iter: I) -> Result<Self, AllocError> {
-        self.try_extend_from_iter(iter)?;
-        Ok(self)
-    }
-
-    // ----
     // array deviations
 
     pub fn contains(&self, value: &T) -> bool {
@@ -327,14 +308,6 @@ mod oom {
         pub fn extend_from_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
         }
-
-        // ----
-        // builder-lite with
-
-        #[inline]
-        pub fn with_iter<I: Iterator<Item = (K, V)>>(self, iter: I) -> Self {
-            this_is_fine(self.try_with_iter(iter))
-        }
     }
 
     // :TryCloneIn
@@ -374,14 +347,6 @@ mod oom {
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
-        }
-
-        // ----
-        // builder-lite with
-
-        #[inline]
-        pub fn with_iter<I: Iterator<Item = T>>(self, iter: I) -> Self {
-            this_is_fine(self.try_with_iter(iter))
         }
     }
 
