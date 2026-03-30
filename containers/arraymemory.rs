@@ -129,6 +129,12 @@ impl<T, A: Allocator + Default> Default for GrowableArrayMemory<T, A> {
     }
 }
 
+// SAFETY: GrowableArrayMemory owns both T and A.
+unsafe impl<T: Send, A: Allocator + Send> Send for GrowableArrayMemory<T, A> {}
+
+// SAFETY: GrowableArrayMemory owns both T and A.
+unsafe impl<T: Sync, A: Allocator + Sync> Sync for GrowableArrayMemory<T, A> {}
+
 // ----
 // fixed
 //
