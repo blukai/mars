@@ -7,7 +7,7 @@ use core::{fmt, ops, slice};
 use std::io;
 
 use alloc::{AllocError, Allocator};
-use scopeguard::ScopeGuard;
+use dropguard::DropGuard;
 
 use crate::arraymemory::{
     ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
@@ -543,7 +543,7 @@ impl<T, M: ArrayMemory<T>> Drop for Drain<'_, T, M> {
         // QUOTE:
         // > moves back the un-`Drain`ed items to restore the original `Vec`.
         // > ensure items are moved back into their appropriate places, even when drop_in_place panics
-        let _guard = ScopeGuard::new(|| {
+        let _guard = DropGuard::new(|| {
             if self.tail_len == 0 {
                 return;
             }

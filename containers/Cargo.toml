@@ -8,7 +8,7 @@ path = "containers.rs"
 
 [dependencies]
 alloc = { workspace = true }
-scopeguard = { workspace = true }
+dropguard = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

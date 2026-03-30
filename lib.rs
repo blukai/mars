@@ -19,8 +19,8 @@ pub use hash::*;
 #[cfg(feature = "rangealloc")]
 pub use rangealloc;
 
-#[cfg(feature = "scopeguard")]
-pub use scopeguard;
+#[cfg(feature = "dropguard")]
+pub use dropguard;
 
 #[cfg(feature = "varint")]
 pub use varint;

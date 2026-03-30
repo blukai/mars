@@ -3,7 +3,7 @@ use core::cell::Cell;
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull, null_mut};
 
-use scopeguard::ScopeGuard;
+use dropguard::DropGuard;
 
 use crate::{AllocError, Allocator, align_up, ptr_is_aligned_to};
 
@@ -114,9 +114,9 @@ impl<'data> TempAllocator<'data> {
         self.occupied.replace(checkpoint.occupied);
     }
 
-    pub fn checkpoint(&self) -> ScopeGuard<(), impl FnOnce(())> {
+    pub fn checkpoint(&self) -> DropGuard<(), impl FnOnce(())> {
         let checkpoint = self.make_checkpoint();
-        ScopeGuard::new(move || self.reset_to_checkpoint(checkpoint))
+        DropGuard::new(move || self.reset_to_checkpoint(checkpoint))
     }
 
     pub fn get_high_water_mark(&self) -> usize {

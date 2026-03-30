@@ -8,7 +8,7 @@ members = [
   "flag",
   "hash",
   "rangealloc",
-  "scopeguard",
+  "dropguard",
   "varint",
 ]
 
@@ -27,7 +27,7 @@ containers = { path = "containers" }
 flag = { path = "flag" }
 hash = { path = "hash" }
 rangealloc = { path = "rangealloc" }
-scopeguard = { path = "scopeguard" }
+dropguard = { path = "dropguard" }
 varint = { path = "varint" }
 
 # workspace above
@@ -50,7 +50,7 @@ containers = { workspace = true, optional = true }
 flag = { workspace = true, optional = true }
 hash = { workspace = true, optional = true }
 rangealloc = { workspace = true, optional = true }
-scopeguard = { workspace = true, optional = true }
+dropguard = { workspace = true, optional = true }
 varint = { workspace = true, optional = true }
 
 [features]
@@ -61,5 +61,5 @@ containers = ["dep:containers", "alloc"]
 flag = ["dep:flag"]
 hash = ["dep:hash"]
 rangealloc = ["dep:rangealloc"]
-scopeguard = ["dep:scopeguard"]
+dropguard = ["dep:dropguard"]
 varint = ["dep:varint", "bitbuf?/varint"]
