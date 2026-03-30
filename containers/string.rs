@@ -13,7 +13,6 @@ use crate::arraymemory::{
     ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
 };
 use crate::boxed::Box;
-use crate::cstring::CString;
 
 /// allows to compute the size and write [`fmt::Arguments`] into a raw buffer.
 ///
@@ -176,7 +175,7 @@ const _: () = {
 
 impl<M: ArrayMemory<u8>> String<M> {
     #[inline]
-    pub fn new_in(mem: M) -> Self {
+    pub fn new_in<I: Into<M>>(mem: I) -> Self {
         Self(Array::new_in(mem))
     }
 
@@ -282,7 +281,7 @@ impl<M: ArrayMemory<u8>> String<M> {
     }
 
     // ----
-    // cstr+cstring
+    // cstr
 
     /// SAFETY: the length must be less than the capacity.
     ///
@@ -312,30 +311,6 @@ impl<M: ArrayMemory<u8>> String<M> {
         Some(unsafe { self.as_c_str_within_cap_unchecked() })
     }
 
-    // NOTE: my current use case for this is to use this with temporary allocator as a fallback
-    // when within cap method fails.
-    #[inline]
-    pub fn try_to_c_string_in<W: ArrayMemory<u8>>(&self, mem: W) -> Result<CString<W>, AllocError> {
-        let len = self.len();
-        let len_with_nul = len + 1;
-        let mut data = Array::new_in(mem);
-        data.try_reserve_exact(len_with_nul)?;
-        // SAFETY: just reserved needed capacity ^.
-        unsafe {
-            // TODO: maybe consider making something like Array::extend_from_slice_copy_unchecked?
-            let ptr = data.as_mut_ptr();
-            ptr.copy_from_nonoverlapping(self.as_ptr(), len);
-            ptr.add(len).write(b'\0');
-            data.set_len(len_with_nul);
-
-            // TODO: do i want to keep all of these asserts here?
-            debug_assert_eq!(data.len(), len_with_nul);
-            debug_assert_eq!(&data[..len_with_nul - 1], self.as_bytes());
-            debug_assert_eq!(data[len_with_nul - 1], b'\0');
-        }
-        Ok(CString(data))
-    }
-
     // ----
     // construct-from
 
@@ -352,12 +327,12 @@ impl<M: ArrayMemory<u8>> String<M> {
         }
     }
 
-    // ----
-    // builder-lite with
-
     #[inline]
-    pub fn try_with_str(self, s: &str) -> Result<Self, AllocError> {
-        self.0.try_with_slice_copy(s.as_bytes()).map(Self)
+    pub fn try_from_str_in<I: Into<M>>(s: &str, mem: I) -> Result<Self, AllocError> {
+        let mut arr = Array::new_in(mem.into());
+        arr.try_reserve_exact(s.len())?;
+        arr.try_extend_from_slice_copy(s.as_bytes())?;
+        Ok(Self(arr))
     }
 
     /// format in two passes; no overallocation.
@@ -366,23 +341,27 @@ impl<M: ArrayMemory<u8>> String<M> {
     ///   - second pass will reserve exact amount of memory and perform the actual write.
     ///
     ///   [`fmt::Arguments`] has no facilities for determining size needed to fit everything.
-    pub fn try_with_format_args(mut self, args: fmt::Arguments<'_>) -> Result<Self, FromFmtError> {
+    pub fn try_from_format_args_in<I: Into<M>>(
+        args: fmt::Arguments<'_>,
+        mem: I,
+    ) -> Result<Self, FromFmtError> {
         // NOTE: first we'll compute size of the buffer.
         let size = {
             let mut f = RawFormatter::empty();
             f.write_fmt(args).map_err(FromFmtError::Fmt)?;
             f.written()
         };
-        self.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
 
-        let mut f = unsafe { Formatter::from_raw_parts(self.as_mut_ptr(), size) };
-        f.write_fmt(args).map_err(FromFmtError::Fmt)?;
-
-        assert_eq!(size, f.written());
+        let mut arr = Array::new_in(mem.into());
+        arr.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
+        {
+            let mut f = unsafe { Formatter::from_raw_parts(arr.as_mut_ptr(), size) };
+            f.write_fmt(args).map_err(FromFmtError::Fmt)?;
+            assert_eq!(size, f.written());
+        }
         // SAFETY: `size` number of bytes have been written buf by Formatter.
-        unsafe { self.set_len(size) };
-
-        Ok(self)
+        unsafe { arr.set_len(size) };
+        Ok(Self(arr))
     }
 }
 
@@ -515,6 +494,7 @@ impl<A: Allocator> GrowableString<A> {
     // ----
     // into
 
+    // TODO: move this into box.
     pub unsafe fn into_boxed_str_assume_full(self) -> Box<str, A> {
         debug_assert_eq!(self.len(), self.cap());
         unsafe {
@@ -538,6 +518,19 @@ impl<const N: usize> FixedString<N> {
     #[inline]
     pub fn new_fixed() -> Self {
         Self::new_in(FixedArrayMemory::default())
+    }
+
+    // ----
+    // construct-from
+
+    #[inline]
+    pub fn try_from_str(s: &str) -> Result<Self, AllocError> {
+        Self::try_from_str_in(s, FixedArrayMemory::default())
+    }
+
+    #[inline]
+    pub fn try_from_format_args(args: fmt::Arguments<'_>) -> Result<Self, FromFmtError> {
+        Self::try_from_format_args_in(args, FixedArrayMemory::default())
     }
 }
 
@@ -595,24 +588,16 @@ mod oom {
         }
 
         // ----
-        // cstr+cstring
+        // construct-from
 
         #[inline]
-        pub fn to_c_string_in<W: ArrayMemory<u8>>(&self, mem: W) -> CString<W> {
-            this_is_fine(self.try_to_c_string_in(mem))
-        }
-
-        // ----
-        // builder-lite with
-
-        #[inline]
-        pub fn with_str(self, s: &str) -> Self {
-            this_is_fine(self.try_with_str(s))
+        pub fn from_str_in<I: Into<M>>(s: &str, mem: I) -> Self {
+            this_is_fine(Self::try_from_str_in(s, mem))
         }
 
         #[inline]
-        pub fn with_format_args(self, args: fmt::Arguments<'_>) -> Self {
-            match self.try_with_format_args(args) {
+        pub fn from_format_args_in<I: Into<M>>(args: fmt::Arguments<'_>, mem: I) -> Self {
+            match Self::try_from_format_args_in(args, mem) {
                 Ok(ok) => ok,
                 Err(FromFmtError::Alloc(err)) => eek(err),
                 Err(FromFmtError::Fmt(err)) => panic!("could not format: {err}"),
@@ -622,13 +607,28 @@ mod oom {
 
     impl<A: Allocator + Clone> Clone for GrowableString<A> {
         fn clone(&self) -> Self {
-            Self::new_growable_in(self.0.memory().allocator().clone()).with_str(self)
+            Self::from_str_in(self.as_str(), self.0.memory().allocator().clone())
+        }
+    }
+
+    impl<const N: usize> FixedString<N> {
+        // ----
+        // construct-from
+
+        #[inline]
+        pub fn from_str(s: &str) -> Self {
+            Self::from_str_in(s, FixedArrayMemory::default())
+        }
+
+        #[inline]
+        pub fn from_format_args(args: fmt::Arguments<'_>) -> Self {
+            Self::from_format_args_in(args, FixedArrayMemory::default())
         }
     }
 
     impl<const N: usize, A: Allocator + Clone> Clone for SpillableString<N, A> {
         fn clone(&self) -> Self {
-            Self::new_spillable_in(self.0.memory().allocator().clone()).with_str(self)
+            Self::from_str_in(self.as_str(), self.0.memory().allocator().clone())
         }
     }
 }
@@ -638,14 +638,10 @@ mod oom {
 #[macro_export]
 macro_rules! format {
     (try in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::String::try_from_format_args_in(
-            format_args!($($arg)*),
-            $crate::arraymemory::GrowableArrayMemory::new_in($alloc),
-        )
+        $crate::string::GrowableString::try_from_format_args_in(format_args!($($arg)*), $alloc)
     };
     (in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::String::new_in($crate::arraymemory::GrowableArrayMemory::new_in($alloc))
-            .with_format_args(format_args!($($arg)*))
+        $crate::string::GrowableString::from_format_args_in(format_args!($($arg)*), $alloc)
     };
 }
 
@@ -653,8 +649,6 @@ macro_rules! format {
 
 #[cfg(test)]
 mod tests {
-    use crate::arraymemory::GrowableArrayMemory;
-
     use super::*;
 
     #[test]
@@ -670,12 +664,12 @@ mod tests {
     #[test]
     fn test_as_c_str_within_cap() {
         {
-            let mut string = String::new_growable_in(alloc::Global).with_str("somen");
+            let mut string = GrowableString::from_str_in("somen", alloc::Global);
             assert_eq!(string.as_c_str_within_cap(), None);
         }
 
         {
-            let mut string = String::new_growable_in(alloc::Global);
+            let mut string = GrowableString::new_growable_in(alloc::Global);
             string.reserve_exact(1000);
             string.push_str("soba");
             let c_str = string.as_c_str_within_cap().unwrap();
@@ -684,22 +678,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_try_to_c_string() {
-        let string = String::new_growable_in(alloc::Global).with_str("udon");
-        let c_string = string
-            .try_to_c_string_in(GrowableArrayMemory::new_in(alloc::Global))
-            .unwrap();
-        assert_eq!(c_string.as_c_str(), c"udon");
-        assert_eq!(c_string.to_bytes_with_nul().len(), string.len() + 1);
-    }
-
     // ----
     // NOTE: tests that start with test_std_ are stolen from std.
 
     #[test]
     fn test_std_push_str() {
-        let mut s = String::new_in(GrowableArrayMemory::new_in(alloc::Global));
+        let mut s = GrowableString::new_in(alloc::Global);
         s.push_str("");
         assert_eq!(&s[0..], "");
         s.push_str("abc");
@@ -710,8 +694,7 @@ mod tests {
 
     #[test]
     fn test_std_push() {
-        let mut data =
-            String::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_str("ประเทศไทย中");
+        let mut data = GrowableString::from_str_in("ประเทศไทย中", alloc::Global);
         data.push_char('华');
         data.push_char('b'); // 1 byte
         data.push_char('¢'); // 2 byte
@@ -722,8 +705,7 @@ mod tests {
 
     #[test]
     fn test_std_pop() {
-        let mut data = String::new_in(GrowableArrayMemory::new_in(alloc::Global))
-            .with_str("ประเทศไทย中华b¢€𤭢");
+        let mut data = GrowableString::from_str_in("ประเทศไทย中华b¢€𤭢", alloc::Global);
         assert_eq!(data.pop(), Some('𤭢')); // 4 bytes
         assert_eq!(data.pop(), Some('€')); // 3 bytes
         assert_eq!(data.pop(), Some('¢')); // 2 bytes
@@ -734,7 +716,7 @@ mod tests {
 
     #[test]
     fn test_std_clear() {
-        let mut s = String::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_str("12345");
+        let mut s = GrowableString::from_str_in("12345", alloc::Global);
         s.clear();
         assert_eq!(s.len(), 0);
         assert_eq!(s, "");
@@ -742,7 +724,7 @@ mod tests {
 
     #[test]
     fn test_std_slicing() {
-        let s = String::new_in(GrowableArrayMemory::new_in(alloc::Global)).with_str("foobar");
+        let s = GrowableString::from_str_in("foobar", alloc::Global);
         assert_eq!("foobar", &s[..]);
         assert_eq!("foo", &s[..3]);
         assert_eq!("bar", &s[3..]);
@@ -751,8 +733,7 @@ mod tests {
 
     #[test]
     fn test_into_boxed_str() {
-        let xs = String::new_in(GrowableArrayMemory::new_in(alloc::Global))
-            .with_str("hello my name is bob");
+        let xs = GrowableString::from_str_in("hello my name is bob", alloc::Global);
         let ys = unsafe { xs.into_boxed_str_assume_full() };
         assert_eq!(&*ys, "hello my name is bob");
     }

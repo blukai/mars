@@ -119,6 +119,13 @@ impl<T, A: Allocator + Default> Default for GrowableArrayMemory<T, A> {
     }
 }
 
+impl<T, A: Allocator> From<A> for GrowableArrayMemory<T, A> {
+    #[inline(always)]
+    fn from(value: A) -> Self {
+        Self::new_in(value)
+    }
+}
+
 // SAFETY: GrowableArrayMemory owns both T and A.
 unsafe impl<T: Send, A: Allocator + Send> Send for GrowableArrayMemory<T, A> {}
 
@@ -266,5 +273,12 @@ impl<T, const N: usize, A: Allocator + Default> Default for SpillableArrayMemory
     #[inline]
     fn default() -> Self {
         Self::new_in(A::default())
+    }
+}
+
+impl<T, const N: usize, A: Allocator> From<A> for SpillableArrayMemory<T, N, A> {
+    #[inline(always)]
+    fn from(value: A) -> Self {
+        Self::new_in(value)
     }
 }
