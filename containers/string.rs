@@ -486,11 +486,6 @@ impl<M: ArrayMemory<u8>> Hash for String<M> {
 pub type GrowableString<A: Allocator> = String<GrowableArrayMemory<u8, A>>;
 
 impl<A: Allocator> GrowableString<A> {
-    #[inline]
-    pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableArrayMemory::new_in(alloc))
-    }
-
     // ----
     // into
 
@@ -547,11 +542,6 @@ impl<const N: usize> Clone for FixedString<N> {
 pub type SpillableString<const N: usize, A: Allocator> = String<SpillableArrayMemory<u8, N, A>>;
 
 impl<const N: usize, A: Allocator> SpillableString<N, A> {
-    #[inline]
-    pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableArrayMemory::new_in(alloc))
-    }
-
     #[inline]
     pub fn is_spilled(&self) -> bool {
         self.0.is_spilled()
@@ -669,7 +659,7 @@ mod tests {
         }
 
         {
-            let mut string = GrowableString::new_growable_in(alloc::Global);
+            let mut string = GrowableString::new_in(alloc::Global);
             string.reserve_exact(1000);
             string.push_str("soba");
             let c_str = string.as_c_str_within_cap().unwrap();

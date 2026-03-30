@@ -24,14 +24,14 @@ fn bench_sortedarraymap(c: &mut Criterion) {
 
     g.bench_function("insert number", |b| {
         b.iter(|| {
-            let mut thing = GrowableSortedArrayMap::new_growable_in(alloc::Global);
+            let mut thing = GrowableSortedArrayMap::new_in(alloc::Global);
             for (i, _) in black_box(iter::repeat_n((), N)).enumerate() {
                 black_box(thing.insert(i, ()));
             }
         })
     });
     g.bench_function("get number", |b| {
-        let mut thing = GrowableSortedArrayMap::new_growable_in(alloc::Global);
+        let mut thing = GrowableSortedArrayMap::new_in(alloc::Global);
         iter::repeat_n((), N)
             .enumerate()
             .for_each(|(i, _)| thing.insert(i, ()));
@@ -44,14 +44,14 @@ fn bench_sortedarraymap(c: &mut Criterion) {
 
     g.bench_function("insert string", |b| {
         b.iter(|| {
-            let mut thing = GrowableSortedArrayMap::new_growable_in(alloc::Global);
+            let mut thing = GrowableSortedArrayMap::new_in(alloc::Global);
             for (i, _) in black_box(iter::repeat_n((), N)).enumerate() {
                 black_box(thing.insert(lipsum[i], ()));
             }
         })
     });
     g.bench_function("get string", |b| {
-        let mut thing = GrowableSortedArrayMap::new_growable_in(alloc::Global);
+        let mut thing = GrowableSortedArrayMap::new_in(alloc::Global);
         iter::repeat_n((), N)
             .enumerate()
             .for_each(|(i, _)| thing.insert(lipsum[i], ()));

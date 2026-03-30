@@ -612,11 +612,6 @@ fn try_array_clone_slow<T: Clone, M: ArrayMemory<T>>(
 pub type GrowableArray<T, A: Allocator> = Array<T, GrowableArrayMemory<T, A>>;
 
 impl<T, A: Allocator> GrowableArray<T, A> {
-    #[inline]
-    pub fn new_growable_in(alloc: A) -> Self {
-        Self::new_in(GrowableArrayMemory::new_in(alloc))
-    }
-
     // ----
     // into
 
@@ -656,11 +651,6 @@ impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
 pub type SpillableArray<T, const N: usize, A: Allocator> = Array<T, SpillableArrayMemory<T, N, A>>;
 
 impl<T, const N: usize, A: Allocator> SpillableArray<T, N, A> {
-    #[inline]
-    pub fn new_spillable_in(alloc: A) -> Self {
-        Self::new_in(SpillableArrayMemory::new_in(alloc))
-    }
-
     #[inline]
     pub fn is_spilled(&self) -> bool {
         self.mem.is_spilled()
@@ -737,7 +727,7 @@ mod oom {
     // :TryCloneIn
     impl<T: Clone, A: Allocator + Clone> Clone for GrowableArray<T, A> {
         fn clone(&self) -> Self {
-            let mut ret = Self::new_growable_in(self.mem.allocator().clone());
+            let mut ret = Self::new_in(self.mem.allocator().clone());
             this_is_fine(try_array_clone_slow(self, &mut ret));
             ret
         }
@@ -746,7 +736,7 @@ mod oom {
     // :TryCloneIn
     impl<T: Clone, const N: usize, A: Allocator + Clone> Clone for SpillableArray<T, N, A> {
         fn clone(&self) -> Self {
-            let mut ret = Self::new_spillable_in(self.mem.allocator().clone());
+            let mut ret = Self::new_in(self.mem.allocator().clone());
             this_is_fine(try_array_clone_slow(self, &mut ret));
             ret
         }

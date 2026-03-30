@@ -6,7 +6,7 @@ use core::{fmt, mem};
 
 use alloc::Allocator;
 
-use crate::array::{Array, GrowableArray, PushError};
+use crate::array::{GrowableArray, PushError};
 
 /// The idea to use `NonZeroU32` is borrowed from [thunderdome][1].
 ///
@@ -340,7 +340,7 @@ pub struct HandleArray<T, A: Allocator> {
 impl<T, A: Allocator + Default> Default for HandleArray<T, A> {
     fn default() -> Self {
         Self {
-            entries: Array::new_growable_in(A::default()),
+            entries: GrowableArray::new_in(A::default()),
             free_head: None,
         }
     }
@@ -350,7 +350,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
     #[inline]
     pub fn new_in(alloc: A) -> Self {
         Self {
-            entries: Array::new_growable_in(alloc),
+            entries: GrowableArray::new_in(alloc),
             free_head: None,
         }
     }
