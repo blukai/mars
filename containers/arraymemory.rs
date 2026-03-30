@@ -60,16 +60,6 @@ impl<T, A: Allocator> GrowableArrayMemory<T, A> {
     pub fn allocator(&self) -> &A {
         &self.alloc
     }
-
-    #[inline]
-    pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
-        // TODO: should with_cap resize (grow/shrink)?
-        assert_eq!(self.cap, 0);
-        if cap > 0 {
-            unsafe { self.grow(cap)? };
-        }
-        Ok(self)
-    }
 }
 
 unsafe impl<T, A: Allocator> ArrayMemory<T> for GrowableArrayMemory<T, A> {
@@ -256,9 +246,9 @@ unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMe
                 let Self::Fixed((fixed, alloc)) = mem::replace(self, Self::Transitional) else {
                     unreachable!();
                 };
-                let mut growable =
-                    GrowableArrayMemory::<T, A>::new_in(alloc).try_with_cap(new_cap)?;
+                let mut growable = GrowableArrayMemory::<T, A>::new_in(alloc);
                 unsafe {
+                    growable.grow(new_cap)?;
                     growable
                         .as_mut_ptr()
                         .copy_from_nonoverlapping(fixed.data.as_ptr().cast(), N)
@@ -276,21 +266,5 @@ impl<T, const N: usize, A: Allocator + Default> Default for SpillableArrayMemory
     #[inline]
     fn default() -> Self {
         Self::new_in(A::default())
-    }
-}
-
-// ----
-
-#[cfg(not(no_global_oom_handling))]
-mod oom {
-    use crate::this_is_fine;
-
-    use super::*;
-
-    impl<T, A: Allocator> GrowableArrayMemory<T, A> {
-        #[inline]
-        pub fn with_cap(self, cap: usize) -> Self {
-            this_is_fine(self.try_with_cap(cap))
-        }
     }
 }

@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::num::NonZeroU32;
 use core::{fmt, mem};
 
-use alloc::{AllocError, Allocator};
+use alloc::Allocator;
 
 use crate::array::{Array, GrowableArray, PushError};
 
@@ -356,14 +356,6 @@ impl<T, A: Allocator> HandleArray<T, A> {
     }
 
     #[inline]
-    pub fn try_with_cap(self, cap: usize) -> Result<Self, AllocError> {
-        Ok(Self {
-            entries: self.entries.try_with_cap(cap)?,
-            ..self
-        })
-    }
-
-    #[inline]
     pub fn len(&self) -> u32 {
         u32::try_from(self.entries.len()).unwrap_or_else(|_| panic!("entries.len() overflored u32"))
     }
@@ -605,18 +597,11 @@ impl<T, A: Allocator> HandleArray<T, A> {
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use crate::{array::PushErrorKind, eek, this_is_fine};
+    use crate::{array::PushErrorKind, eek};
 
     use super::*;
 
     impl<T, A: Allocator> HandleArray<T, A> {
-        #[inline]
-        pub fn with_cap(self, cap: usize) -> Self {
-            this_is_fine(self.try_with_cap(cap))
-        }
-
-        // ----
-
         pub fn push_with(&mut self, f: impl FnOnce(Handle<T>) -> T) -> Handle<T> {
             match self.try_push_with(f) {
                 Ok(handle) => handle,

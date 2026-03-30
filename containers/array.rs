@@ -416,17 +416,6 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     // TODO: extend from array
 
     // ----
-    // builder-lite
-
-    #[inline]
-    pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
-        // TODO: should with_cap resize (grow/shrink)?
-        assert_eq!(self.cap(), 0);
-        self.try_reserve_exact(cap)?;
-        Ok(self)
-    }
-
-    // ----
     // builder-lite with
 
     pub fn try_with_iter<I: Iterator<Item = T>>(mut self, iter: I) -> Result<Self, AllocError> {
@@ -764,14 +753,6 @@ mod oom {
             T: Copy,
         {
             this_is_fine(self.try_extend_from_slice_copy(other))
-        }
-
-        // ----
-        // builder-lite
-
-        #[inline]
-        pub fn with_cap(self, cap: usize) -> Self {
-            this_is_fine(self.try_with_cap(cap))
         }
 
         // ----

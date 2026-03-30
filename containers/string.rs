@@ -353,17 +353,6 @@ impl<M: ArrayMemory<u8>> String<M> {
     }
 
     // ----
-    // builder-lite
-
-    #[inline]
-    pub fn try_with_cap(mut self, cap: usize) -> Result<Self, AllocError> {
-        // TODO: should with_cap resize (grow/shrink)?
-        assert_eq!(self.cap(), 0);
-        self.try_reserve_exact(cap)?;
-        Ok(self)
-    }
-
-    // ----
     // builder-lite with
 
     #[inline]
@@ -614,14 +603,6 @@ mod oom {
         }
 
         // ----
-        // builder-lite
-
-        #[inline]
-        pub fn with_cap(self, cap: usize) -> Self {
-            this_is_fine(self.try_with_cap(cap))
-        }
-
-        // ----
         // builder-lite with
 
         #[inline]
@@ -694,9 +675,9 @@ mod tests {
         }
 
         {
-            let mut string = String::new_growable_in(alloc::Global)
-                .with_cap(1000)
-                .with_str("soba");
+            let mut string = String::new_growable_in(alloc::Global);
+            string.reserve_exact(1000);
+            string.push_str("soba");
             let c_str = string.as_c_str_within_cap().unwrap();
             assert_eq!(c_str, c"soba");
             assert_eq!(c_str.to_bytes_with_nul().len(), string.len() + 1);
