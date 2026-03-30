@@ -35,19 +35,18 @@ pub struct ArenaAllocator<A: Allocator> {
 }
 
 impl<A: Allocator> ArenaAllocator<A> {
-    pub const fn new_in(region_alloc: A) -> Self {
+    pub const fn new_in(region_alloc: A, preferred_min_region_size: Option<usize>) -> Self {
+        let mut min_region_size = ARENA_DEFAULT_MIN_REGION_SIZE;
+        if let Some(preferred) = preferred_min_region_size {
+            min_region_size = preferred;
+        }
         Self {
             region_alloc,
-            min_region_size: ARENA_DEFAULT_MIN_REGION_SIZE,
+            min_region_size,
             head: Cell::new(null_mut()),
             curr: Cell::new(null_mut()),
             curr_occupied: Cell::new(0),
         }
-    }
-
-    pub const fn with_min_region_size(mut self, min_region_size: usize) -> Self {
-        self.min_region_size = min_region_size;
-        self
     }
 
     fn allocate_region(&self, min_size: usize) -> Result<*mut Region, AllocError> {
@@ -197,7 +196,7 @@ impl<A: Allocator> Drop for ArenaAllocator<A> {
 impl<A: Allocator + Default> Default for ArenaAllocator<A> {
     #[inline]
     fn default() -> Self {
-        Self::new_in(A::default())
+        Self::new_in(A::default(), None)
     }
 }
 
@@ -258,7 +257,7 @@ mod tests {
         let ca = CountingAllocator::new();
         {
             const MIN_REGION_SIZE: usize = 1000;
-            let arena = ArenaAllocator::new_in(&ca).with_min_region_size(MIN_REGION_SIZE);
+            let arena = ArenaAllocator::new_in(&ca, Some(MIN_REGION_SIZE));
             let layout = Layout::from_size_align(MIN_REGION_SIZE / 2 + 2, 8).unwrap();
             let _p1 = arena.allocate(layout);
             let _p2 = arena.allocate(layout);
