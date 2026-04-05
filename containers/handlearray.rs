@@ -1,46 +1,20 @@
 use core::any::{TypeId, type_name};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
-use core::num::NonZeroU32;
 use core::{fmt, mem};
 
 use alloc::Allocator;
 
 use crate::array::{GrowableArray, PushError};
 
-/// The idea to use `NonZeroU32` is borrowed from [thunderdome][1].
-///
-/// [1]: https://github.com/LPGhatguy/thunderdome/blob/9e0a6dc3d2e6d402a2f985e47a876156d42c198b/src/generation.rs
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-struct Generation(NonZeroU32);
-
-impl Generation {
-    /// Useful for two-phase initialization.
-    const DANGLING: Self = Self(unsafe { NonZeroU32::new_unchecked(u32::MAX) });
-
-    #[inline]
-    #[expect(dead_code)]
-    fn is_dangling(&self) -> bool {
-        self.eq(&Self::DANGLING)
-    }
-
-    #[inline]
-    fn new() -> Self {
-        Self(unsafe { NonZeroU32::new_unchecked(1) })
-    }
-
-    #[inline]
-    fn try_bump(self) -> Option<Self> {
-        self.0.checked_add(1).map(Self)
-    }
-}
+const DANGLING_GENERATION: u32 = 0;
+const FIRST_GENERATION: u32 = 1;
 
 /// Type-erased handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ErasedHandle {
-    index: u32,
-    generation: Generation,
+    pub index: u32,
+    pub generation: u32,
 }
 
 impl Default for ErasedHandle {
@@ -63,12 +37,25 @@ impl ErasedHandle {
     /// `Option<ErasedHandle>`.
     pub const DANGLING: Self = Self {
         index: 0,
-        generation: Generation::DANGLING,
+        generation: DANGLING_GENERATION,
     };
 
     #[inline]
     pub fn is_dangling(&self) -> bool {
         self.eq(&Self::DANGLING)
+    }
+
+    #[inline]
+    pub fn to_u64(&self) -> u64 {
+        ((self.index as u64) << 32) | (self.generation as u64)
+    }
+
+    #[inline]
+    pub fn from_u64(value: u64) -> Self {
+        Self {
+            index: (value >> 32) as u32,
+            generation: value as u32,
+        }
     }
 }
 
@@ -79,9 +66,9 @@ impl ErasedHandle {
 // of your code!
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AnyHandle {
-    index: u32,
-    generation: Generation,
-    type_id: TypeId,
+    pub index: u32,
+    pub generation: u32,
+    pub type_id: TypeId,
 }
 
 impl Default for AnyHandle {
@@ -104,18 +91,13 @@ impl AnyHandle {
     /// `Option<AnyHandle>`.
     pub const DANGLING: Self = Self {
         index: 0,
-        generation: Generation::DANGLING,
+        generation: DANGLING_GENERATION,
         type_id: unsafe { mem::zeroed() },
     };
 
     #[inline]
     pub fn is_dangling(&self) -> bool {
         self.eq(&Self::DANGLING)
-    }
-
-    #[inline]
-    pub fn type_id(&self) -> TypeId {
-        self.type_id
     }
 
     #[inline]
@@ -129,8 +111,8 @@ impl AnyHandle {
 
 /// A non-owning, cheap-to-copy reference to an entry in a [`HandleArray`].
 pub struct Handle<T> {
-    index: u32,
-    generation: Generation,
+    pub index: u32,
+    pub generation: u32,
     type_marker: PhantomData<T>,
 }
 
@@ -199,7 +181,7 @@ impl<T> Handle<T> {
     /// `Option<Handle<T>>`.
     pub const DANGLING: Self = Self {
         index: 0,
-        generation: Generation::DANGLING,
+        generation: DANGLING_GENERATION,
         type_marker: PhantomData,
     };
 
@@ -209,7 +191,7 @@ impl<T> Handle<T> {
     }
 
     #[inline]
-    fn new(index: u32, generation: Generation) -> Self {
+    fn new(index: u32, generation: u32) -> Self {
         Self {
             index,
             generation,
@@ -225,10 +207,9 @@ impl<T> Handle<T> {
         }
     }
 
-    /// Make sure you know what you are doing with this, there are no checks that will tell you
-    /// otherwise.
+    /// SAFETY: it's on you to know where the erased handle came from.
     #[inline]
-    pub fn from_erased(erased_handle: ErasedHandle) -> Self {
+    pub unsafe fn from_erased(erased_handle: ErasedHandle) -> Self {
         Handle {
             index: erased_handle.index,
             generation: erased_handle.generation,
@@ -239,7 +220,7 @@ impl<T> Handle<T> {
 
 impl<T: 'static> Handle<T> {
     #[inline]
-    pub fn as_any(&self) -> AnyHandle {
+    pub fn to_any(&self) -> AnyHandle {
         AnyHandle {
             index: self.index,
             generation: self.generation,
@@ -273,7 +254,7 @@ enum EntryKind<T> {
 #[derive(Debug)]
 struct Entry<T> {
     kind: EntryKind<T>,
-    generation: Generation,
+    generation: u32,
 }
 
 // TODO: rename Ticket to Token or something like that.
@@ -457,7 +438,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
             // QUOTE: Once the generation counter would 'overflow', disable that array slot, so
             // that no new handles are returned for this slot.
             // https://floooh.github.io/2018/06/17/handles-vs-pointers.html
-            let Some(generation) = entry.generation.try_bump() else {
+            let Some(generation) = entry.generation.checked_add(1) else {
                 continue;
             };
             let handle = Handle::new(index, generation);
@@ -468,7 +449,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
             return Ok(handle);
         }
 
-        let handle = Handle::new(self.entries.len() as u32, Generation::new());
+        let handle = Handle::new(self.entries.len() as u32, FIRST_GENERATION);
         match self.entries.try_push(Entry {
             kind: EntryKind::Occupied(f(handle)),
             generation: handle.generation,
@@ -669,17 +650,26 @@ mod tests {
 
     #[test]
     fn test_erased_handle_roundtrip() {
-        let handle = Handle::<()>::new(42, Generation::new());
+        let handle = Handle::<()>::new(42, FIRST_GENERATION);
         let erased_handle = handle.to_erased();
-        let reconstructed = Handle::<()>::from_erased(erased_handle);
+        let reconstructed = unsafe { Handle::<()>::from_erased(erased_handle) };
         assert_eq!(reconstructed, handle);
     }
 
     #[test]
     fn test_any_handle_roundtrip() {
-        let handle = Handle::<()>::new(42, Generation::new());
-        let any_handle = handle.as_any();
+        let handle = Handle::<()>::new(42, FIRST_GENERATION);
+        let any_handle = handle.to_any();
         let reconstructed = Handle::<()>::try_from_any(any_handle).unwrap();
+        assert_eq!(reconstructed, handle);
+    }
+
+    #[test]
+    fn test_u64_handle_roundtrip() {
+        let handle = Handle::<()>::new(42, FIRST_GENERATION);
+        let u64_handle = handle.to_erased().to_u64();
+        let reconstructed =
+            unsafe { Handle::<()>::from_erased(ErasedHandle::from_u64(u64_handle)) };
         assert_eq!(reconstructed, handle);
     }
 
