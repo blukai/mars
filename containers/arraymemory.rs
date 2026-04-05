@@ -206,7 +206,6 @@ impl<T, const N: usize, A: Allocator> SpillableArrayMemory<T, N, A> {
         }
     }
 
-    #[inline]
     pub fn is_spilled(&self) -> bool {
         match self {
             Self::Fixed(..) => false,

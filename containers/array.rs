@@ -612,11 +612,22 @@ fn try_array_clone_slow<T: Clone, M: ArrayMemory<T>>(
 pub type GrowableArray<T, A: Allocator> = Array<T, GrowableArrayMemory<T, A>>;
 
 impl<T, A: Allocator> GrowableArray<T, A> {
+    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut [T], A) {
+        assert_eq!(self.len(), self.cap());
+        let mut this = ManuallyDrop::new(self);
+        unsafe {
+            (
+                mem::transmute(this.as_mut_slice()),
+                ptr::read(this.mem.allocator()),
+            )
+        }
+    }
+
     // ----
     // into
 
     pub unsafe fn into_boxed_slice_assume_full(self) -> Box<[T], A> {
-        debug_assert_eq!(self.len(), self.cap());
+        assert_eq!(self.len(), self.cap());
         let mut this = ManuallyDrop::new(self);
         unsafe { Box::from_raw_in(this.as_mut_slice(), ptr::read(this.mem.allocator())) }
     }
@@ -651,7 +662,6 @@ impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
 pub type SpillableArray<T, const N: usize, A: Allocator> = Array<T, SpillableArrayMemory<T, N, A>>;
 
 impl<T, const N: usize, A: Allocator> SpillableArray<T, N, A> {
-    #[inline]
     pub fn is_spilled(&self) -> bool {
         self.mem.is_spilled()
     }

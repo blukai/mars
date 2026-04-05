@@ -486,10 +486,16 @@ impl<M: ArrayMemory<u8>> Hash for String<M> {
 pub type GrowableString<A: Allocator> = String<GrowableArrayMemory<u8, A>>;
 
 impl<A: Allocator> GrowableString<A> {
+    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut str, A) {
+        unsafe {
+            let (slice, alloc) = self.0.leak_with_alloc_assume_full();
+            (str::from_utf8_unchecked_mut(slice), alloc)
+        }
+    }
+
     // ----
     // into
 
-    // TODO: move this into box.
     pub unsafe fn into_boxed_str_assume_full(self) -> Box<str, A> {
         debug_assert_eq!(self.len(), self.cap());
         unsafe {
@@ -542,7 +548,6 @@ impl<const N: usize> Clone for FixedString<N> {
 pub type SpillableString<const N: usize, A: Allocator> = String<SpillableArrayMemory<u8, N, A>>;
 
 impl<const N: usize, A: Allocator> SpillableString<N, A> {
-    #[inline]
     pub fn is_spilled(&self) -> bool {
         self.0.is_spilled()
     }
