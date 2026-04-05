@@ -28,6 +28,8 @@ impl fmt::Display for RangeAllocError {
 // TODO: range alloc doesn't have to be generic.
 //   it's kind of fun and everything, but it's stupid.
 //   rust uses usize for indexing; it makese sense to build on that instead of trying to be clever.
+//
+// TODO: should be able to do aligned allocations.
 #[derive(Debug, Default)]
 pub struct RangeAlloc<T> {
     full_range: Range<T>,

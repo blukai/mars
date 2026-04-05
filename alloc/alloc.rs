@@ -22,3 +22,21 @@ pub(crate) fn ptr_is_aligned_to<T>(ptr: *const T, align: usize) -> bool {
     debug_assert!(align.is_power_of_two());
     ptr.addr() & (align - 1) == 0
 }
+
+// TODO: can you do some kind of contextualization of allocator (thread-scoped)?
+// something akin to:
+//
+// thread_local! {
+//     static ALLOC_OVERRIDE: Cell<AllocatorKind> = Cell::new(AllocatorKind::Default);
+// }
+// and then in global_allocator thingie
+// ALLOC_OVERRIDE.with(|k| match k.get() {
+//     AllocatorKind::Arena => ARENA.alloc(layout),
+//     AllocatorKind::Default => System.alloc(layout),
+// })
+//
+// before you do anything though - look into postgress allocator. it i have heard or read
+// somewhere that it mayhaps does something similar, so this idea is inspied by that.
+//
+// here you would switch to temp alloc (or arena with checkpoint) compile shader and discard
+// everything after you're done and don't need "code" anymore.
