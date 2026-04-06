@@ -86,6 +86,13 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
             .ok()
             .map(|found| unsafe { &mut self.0.get_unchecked_mut(found).1 })
     }
+
+    pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
+        self.0
+            .binary_search_by(|(k, _)| k.cmp(key))
+            .ok()
+            .and_then(|found| self.0.remove_ordered(found))
+    }
 }
 
 impl<K, V, M: ArrayMemory<(K, V)> + Default> Default for SortedArrayMap<K, V, M> {
@@ -182,6 +189,13 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
 
     pub fn contains(&self, value: &T) -> bool {
         self.0.binary_search_by(|v| v.cmp(value)).is_ok()
+    }
+
+    pub fn remove(&mut self, value: &T) -> Option<T> {
+        self.0
+            .binary_search_by(|v| v.cmp(value))
+            .ok()
+            .and_then(|found| self.0.remove_ordered(found))
     }
 }
 
@@ -349,6 +363,17 @@ mod tests {
     }
 
     #[test]
+    fn test_map_remove() {
+        let mut this = GrowableSortedArrayMap::<u32, (), _>::new_in(alloc::Global);
+        this.insert(42, ());
+        this.insert(64, ());
+        this.insert(27, ());
+        assert_eq!(this.0.as_slice(), &[(27, ()), (42, ()), (64, ())]);
+        this.remove(&27);
+        assert_eq!(this.0.as_slice(), &[(42, ()), (64, ())]);
+    }
+
+    #[test]
     fn test_set_insert() {
         let mut this = GrowableSortedArraySet::<u32, _>::new_in(alloc::Global);
         this.insert(64);
@@ -366,5 +391,16 @@ mod tests {
         this.insert("juuroku");
         assert!(this.contains(&"zero"));
         assert!(!this.contains(&"ichi"));
+    }
+
+    #[test]
+    fn test_set_remove() {
+        let mut this = GrowableSortedArraySet::<u32, _>::new_in(alloc::Global);
+        this.insert(42);
+        this.insert(27);
+        this.insert(64);
+        assert_eq!(this.0.as_slice(), &[27, 42, 64]);
+        this.remove(&27);
+        assert_eq!(this.0.as_slice(), &[42, 64]);
     }
 }
