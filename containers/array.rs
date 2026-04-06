@@ -492,6 +492,8 @@ impl_partial_eq! { [M: ArrayMemory<T2>, const C: usize] [T1; C], Array<T2, M> }
 impl_partial_eq! { [M: ArrayMemory<T2>] [T1], Array<T2, M> }
 impl_partial_eq! { [M: ArrayMemory<T2>] std::vec::Vec<T1>, Array<T2, M> }
 
+impl<T: Eq, M: ArrayMemory<T>> Eq for Array<T, M> {}
+
 impl<T: Hash, M: ArrayMemory<T>> Hash for Array<T, M> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
