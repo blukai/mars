@@ -5,3 +5,7 @@ edition.workspace = true
 
 [lib]
 path = "rangealloc.rs"
+
+[dependencies]
+alloc = { workspace = true }
+containers = { workspace = true }
