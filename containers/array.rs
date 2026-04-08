@@ -3,7 +3,7 @@ use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ptr::{self, NonNull};
-use core::{fmt, ops, slice};
+use core::{cmp, fmt, ops, slice};
 use std::io;
 
 use alloc::{AllocError, Allocator};
@@ -477,7 +477,9 @@ macro_rules! impl_partial_eq {
             $($ty: $bound)?
         {
             #[inline]
-            fn eq(&self, other: &$rhs) -> bool { self[..] == other[..] }
+            fn eq(&self, other: &$rhs) -> bool {
+                PartialEq::eq(&self[..], &other[..])
+            }
         }
     }
 }
@@ -493,6 +495,20 @@ impl_partial_eq! { [M: ArrayMemory<T2>] [T1], Array<T2, M> }
 impl_partial_eq! { [M: ArrayMemory<T2>] std::vec::Vec<T1>, Array<T2, M> }
 
 impl<T: Eq, M: ArrayMemory<T>> Eq for Array<T, M> {}
+
+impl<T: PartialOrd, M: ArrayMemory<T>> PartialOrd for Array<T, M> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        PartialOrd::partial_cmp(&self[..], &other[..])
+    }
+}
+
+impl<T: Ord, M: ArrayMemory<T>> Ord for Array<T, M> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        Ord::cmp(&self[..], &other[..])
+    }
+}
 
 impl<T: Hash, M: ArrayMemory<T>> Hash for Array<T, M> {
     #[inline]

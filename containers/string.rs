@@ -441,7 +441,9 @@ macro_rules! impl_partial_eq {
             $($ty: $bound)?
         {
             #[inline]
-            fn eq(&self, other: &$rhs) -> bool { self[..] == other[..] }
+            fn eq(&self, other: &$rhs) -> bool {
+                PartialEq::eq(&self[..], &other[..])
+            }
         }
     }
 }
