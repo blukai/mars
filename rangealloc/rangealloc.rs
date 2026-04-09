@@ -13,7 +13,7 @@ use containers::array::GrowableArray;
 // TODO: try to avoid heap allocations in range alloc.
 //   consider doing a generous fixed-size array or something?
 //   size might be configurable via const generic param.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RangeAllocator<T, A: Allocator> {
     full_range: Range<T>,
     free_ranges: GrowableArray<Range<T>, A>,
