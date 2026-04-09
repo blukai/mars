@@ -1,3 +1,4 @@
+use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt;
 
@@ -20,13 +21,17 @@ use crate::arraymemory::{
 
 /// you may wish to implement SortedArrayCompare if comparison logic that your SortedArray* type
 /// needs is incompatible with Ord that you may need for other purposes..
-pub trait SortedArrayCompare {
-    fn cmp(&self, other: &Self) -> Ordering;
+pub trait SortedArrayCompare<K: ?Sized = Self> {
+    fn compare(&self, key: &K) -> Ordering;
 }
 
-impl<T: Ord> SortedArrayCompare for T {
-    fn cmp(&self, other: &Self) -> Ordering {
-        Ord::cmp(self, other)
+impl<K: ?Sized, Q: ?Sized> SortedArrayCompare<Q> for K
+where
+    K: Borrow<Q>,
+    Q: Ord,
+{
+    fn compare(&self, key: &Q) -> Ordering {
+        Ord::cmp(self.borrow(), key)
     }
 }
 
@@ -46,10 +51,10 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, InsertError<(K, V)>> {
         let index = self
             .0
-            .partition_point(|(k, _)| SortedArrayCompare::cmp(k, &key) == Ordering::Less);
+            .partition_point(|(k, _)| k.compare(&key) == Ordering::Less);
         match self.0.get(index) {
             // TODO: does it matter which value i return?
-            Some((k, ..)) if SortedArrayCompare::cmp(k, &key) == Ordering::Equal => Ok(Some(value)),
+            Some((k, ..)) if k.compare(&key) == Ordering::Equal => Ok(Some(value)),
             _ => self.0.try_insert(index, (key, value)).map(|_| None),
         }
     }
@@ -62,34 +67,46 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
         iter: I,
     ) -> Result<(), AllocError> {
         self.0.try_extend_from_iter(iter)?;
-        self.0.sort_by(|(a, _), (b, _)| a.cmp(b));
+        self.0.sort_by(|(a, _), (b, _)| a.compare(b));
         Ok(())
     }
 
     // ----
     // array deviations
 
-    pub fn contains(&self, key: &K) -> bool {
-        self.0.binary_search_by(|(k, _)| k.cmp(key)).is_ok()
+    pub fn contains<Q: ?Sized>(&self, key: &Q) -> bool
+    where
+        K: SortedArrayCompare<Q>,
+    {
+        self.0.binary_search_by(|(k, _)| k.compare(key)).is_ok()
     }
 
-    pub fn get(&self, key: &K) -> Option<&V> {
+    pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
+    where
+        K: SortedArrayCompare<Q>,
+    {
         self.0
-            .binary_search_by(|(k, _)| k.cmp(key))
+            .binary_search_by(|(k, _)| k.compare(key))
             .ok()
             .map(|found| unsafe { &self.0.get_unchecked(found).1 })
     }
 
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+    pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        K: SortedArrayCompare<Q>,
+    {
         self.0
-            .binary_search_by(|(k, _)| k.cmp(key))
+            .binary_search_by(|(k, _)| k.compare(key))
             .ok()
             .map(|found| unsafe { &mut self.0.get_unchecked_mut(found).1 })
     }
 
-    pub fn remove(&mut self, key: &K) -> Option<(K, V)> {
+    pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<(K, V)>
+    where
+        K: SortedArrayCompare<Q>,
+    {
         self.0
-            .binary_search_by(|(k, _)| k.cmp(key))
+            .binary_search_by(|(k, _)| k.compare(key))
             .ok()
             .and_then(|found| self.0.remove_ordered(found))
     }
@@ -164,10 +181,10 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
     pub fn try_insert(&mut self, value: T) -> Result<Option<T>, InsertError<T>> {
         let index = self
             .0
-            .partition_point(|v| SortedArrayCompare::cmp(v, &value) == Ordering::Less);
+            .partition_point(|v| v.compare(&value) == Ordering::Less);
         match self.0.get(index) {
             // TODO: does it matter which value i return?
-            Some(v) if SortedArrayCompare::cmp(v, &value) == Ordering::Equal => Ok(Some(value)),
+            Some(v) if v.compare(&value) == Ordering::Equal => Ok(Some(value)),
             _ => self.0.try_insert(index, value).map(|_| None),
         }
     }
@@ -180,20 +197,26 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         iter: I,
     ) -> Result<(), AllocError> {
         self.0.try_extend_from_iter(iter)?;
-        self.0.sort_by(|a, b| a.cmp(b));
+        self.0.sort_by(|a, b| a.compare(b));
         Ok(())
     }
 
     // ----
     // array deviations
 
-    pub fn contains(&self, value: &T) -> bool {
-        self.0.binary_search_by(|v| v.cmp(value)).is_ok()
+    pub fn contains<Q: ?Sized>(&self, value: &Q) -> bool
+    where
+        T: SortedArrayCompare<Q>,
+    {
+        self.0.binary_search_by(|v| v.compare(value)).is_ok()
     }
 
-    pub fn remove(&mut self, value: &T) -> Option<T> {
+    pub fn remove<Q: ?Sized>(&mut self, value: &Q) -> Option<T>
+    where
+        T: SortedArrayCompare<Q>,
+    {
         self.0
-            .binary_search_by(|v| v.cmp(value))
+            .binary_search_by(|v| v.compare(value))
             .ok()
             .and_then(|found| self.0.remove_ordered(found))
     }
@@ -341,6 +364,8 @@ mod oom {
 
 #[cfg(test)]
 mod tests {
+    use crate::string::FixedString;
+
     use super::*;
 
     #[test]
@@ -402,5 +427,12 @@ mod tests {
         assert_eq!(this.0.as_slice(), &[27, 42, 64]);
         this.remove(&27);
         assert_eq!(this.0.as_slice(), &[42, 64]);
+    }
+
+    #[test]
+    fn test_map_get_by_str_when_key_is_a_fixed_string() {
+        let mut this = FixedSortedArrayMap::<FixedString<16>, _, 2>::default();
+        this.insert(FixedString::from_str("zero"), 0);
+        assert_eq!(this.get("zero"), Some(&0));
     }
 }

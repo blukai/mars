@@ -3,7 +3,7 @@ use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ptr::{self, NonNull};
-use core::{cmp, fmt, ops, slice};
+use core::{borrow, cmp, fmt, ops, slice};
 use std::io;
 
 use alloc::{AllocError, Allocator};
@@ -447,6 +447,20 @@ impl<T, M: ArrayMemory<T>> ops::DerefMut for Array<T, M> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
+    }
+}
+
+impl<T, M: ArrayMemory<T>> borrow::Borrow<[T]> for Array<T, M> {
+    #[inline]
+    fn borrow(&self) -> &[T] {
+        &self[..]
+    }
+}
+
+impl<T, M: ArrayMemory<T>> borrow::BorrowMut<[T]> for Array<T, M> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut [T] {
+        &mut self[..]
     }
 }
 

@@ -269,7 +269,7 @@ struct Flag<'a, 's> {
 }
 
 impl<'a, 's> SortedArrayCompare for Flag<'a, 's> {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
+    fn compare(&self, other: &Self) -> cmp::Ordering {
         Ord::cmp(self.name, other.name)
     }
 }

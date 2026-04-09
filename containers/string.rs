@@ -4,7 +4,7 @@ use core::fmt::{self, Write as _};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 pub use core::str::Utf8Error;
-use core::{cmp, mem, ops, ptr, slice};
+use core::{borrow, cmp, mem, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
@@ -381,28 +381,28 @@ impl<M: ArrayMemory<u8>> ops::DerefMut for String<M> {
     }
 }
 
-impl<M: ArrayMemory<u8>> AsRef<str> for String<M> {
+// NOTE: borrow is needed for SortedArraySet/Map, and for HashMap
+//   this allows you to get by &str with keys being FixedString or whatever.
+
+impl<M: ArrayMemory<u8>> borrow::Borrow<str> for String<M> {
     #[inline]
-    fn as_ref(&self) -> &str {
-        self
+    fn borrow(&self) -> &str {
+        &self[..]
     }
 }
 
-impl<M: ArrayMemory<u8>> AsRef<std::ffi::OsStr> for String<M> {
+impl<M: ArrayMemory<u8>> borrow::BorrowMut<str> for String<M> {
     #[inline]
-    fn as_ref(&self) -> &std::ffi::OsStr {
-        self.as_str().as_ref()
+    fn borrow_mut(&mut self) -> &mut str {
+        &mut self[..]
     }
 }
 
-impl<M: ArrayMemory<u8>> AsRef<std::path::Path> for String<M> {
-    #[inline]
-    fn as_ref(&self) -> &std::path::Path {
-        std::path::Path::new(self)
-    }
-}
+// NOTE: i removed couple of AsRef (for str, path, osstr and whatnot)
+//   i don't remember why i added those, i clearly don't need them.
 
 impl<M: ArrayMemory<u8> + Default> Default for String<M> {
+    #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
     }

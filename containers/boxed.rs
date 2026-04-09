@@ -112,18 +112,6 @@ impl<T: ?Sized, A: Allocator> ops::DerefMut for Box<T, A> {
     }
 }
 
-impl<T: ?Sized, A: Allocator> AsRef<T> for Box<T, A> {
-    fn as_ref(&self) -> &T {
-        &**self
-    }
-}
-
-impl<T: ?Sized, A: Allocator> AsMut<T> for Box<T, A> {
-    fn as_mut(&mut self) -> &mut T {
-        &mut **self
-    }
-}
-
 impl<T: ?Sized + fmt::Display, A: Allocator> fmt::Display for Box<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
