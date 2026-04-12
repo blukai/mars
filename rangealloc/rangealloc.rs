@@ -166,7 +166,7 @@ where
         self.full_range.end = new_end;
     }
 
-    pub fn clear(&mut self) {
+    pub fn reset(&mut self) {
         self.free_ranges.clear();
         self.free_ranges.push(self.full_range.clone());
     }
