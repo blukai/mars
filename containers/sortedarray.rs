@@ -1,6 +1,7 @@
 use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt;
+use std::mem;
 
 use alloc::{AllocError, Allocator};
 
@@ -52,9 +53,10 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
         let index = self
             .0
             .partition_point(|(k, _)| k.compare(&key) == Ordering::Less);
-        match self.0.get(index) {
-            // TODO: does it matter which value i return?
-            Some((k, ..)) if k.compare(&key) == Ordering::Equal => Ok(Some(value)),
+        match self.0.get_mut(index) {
+            Some((k, existing)) if (k as &K).compare(&key) == Ordering::Equal => {
+                Ok(Some(mem::replace(existing, value)))
+            }
             _ => self.0.try_insert(index, (key, value)).map(|_| None),
         }
     }
@@ -178,14 +180,13 @@ impl<T, M: ArrayMemory<T>> SortedArraySet<T, M> {
 }
 
 impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
-    pub fn try_insert(&mut self, value: T) -> Result<Option<T>, InsertError<T>> {
+    pub fn try_insert(&mut self, value: T) -> Result<(), InsertError<T>> {
         let index = self
             .0
             .partition_point(|v| v.compare(&value) == Ordering::Less);
         match self.0.get(index) {
-            // TODO: does it matter which value i return?
-            Some(v) if v.compare(&value) == Ordering::Equal => Ok(Some(value)),
-            _ => self.0.try_insert(index, value).map(|_| None),
+            Some(v) if v.compare(&value) == Ordering::Equal => Ok(()),
+            _ => self.0.try_insert(index, value),
         }
     }
 
@@ -282,9 +283,9 @@ mod oom {
     use super::*;
 
     impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
-        pub fn insert(&mut self, key: K, value: V) {
+        pub fn insert(&mut self, key: K, value: V) -> Option<V> {
             match self.try_insert(key, value) {
-                Ok(..) => {}
+                Ok(maybe_existing) => maybe_existing,
                 Err(InsertError {
                     kind: InsertErrorKind::OutOfMemory(alloc_error),
                     ..
@@ -370,12 +371,12 @@ mod tests {
 
     #[test]
     fn test_map_insert() {
-        let mut this = GrowableSortedArrayMap::<u32, (), _>::new_in(alloc::Global);
-        this.insert(42, ());
-        this.insert(64, ());
-        this.insert(64, ());
-        this.insert(27, ());
-        assert_eq!(this.0.as_slice(), &[(27, ()), (42, ()), (64, ())]);
+        let mut this = GrowableSortedArrayMap::<u32, u32, _>::new_in(alloc::Global);
+        this.insert(42, 0);
+        this.insert(64, 1);
+        assert_eq!(this.insert(64, 0), Some(1));
+        this.insert(27, 0);
+        assert_eq!(this.0.as_slice(), &[(27, 0), (42, 0), (64, 0)]);
     }
 
     #[test]
