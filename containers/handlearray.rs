@@ -150,6 +150,23 @@ impl<T> PartialEq for Handle<T> {
 impl<T> Eq for Handle<T> {}
 
 // :BlindDerive
+impl<T> PartialOrd for Handle<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// :BlindDerive
+impl<T> Ord for Handle<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index
+            .cmp(&other.index)
+            .then(self.generation.cmp(&other.generation))
+    }
+}
+
+// :BlindDerive
 impl<T> Hash for Handle<T> {
     // NOTE: this is very non collision free hash
     #[inline]
