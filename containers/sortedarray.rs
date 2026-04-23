@@ -180,6 +180,7 @@ impl<T, M: ArrayMemory<T>> SortedArraySet<T, M> {
 }
 
 impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
+    // TODO: return true if the set did not previously contain the value.
     pub fn try_insert(&mut self, value: T) -> Result<(), InsertError<T>> {
         let index = self
             .0
