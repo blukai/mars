@@ -632,6 +632,7 @@ mod oom {
 
 // ----
 
+// TODO: do the same stupid workaround as in bitarray.
 #[macro_export]
 macro_rules! format {
     (try in $alloc:expr, $($arg:tt)*) => {
