@@ -4,7 +4,7 @@ use core::ptr::{self, NonNull, null_mut};
 
 use dropguard::DropGuard;
 
-use crate::{AllocError, Allocator, align_up, ptr_is_aligned_to};
+use crate::{AllocError, Allocator, align_up};
 
 pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 
@@ -19,7 +19,7 @@ pub struct ArenaCheckpoint(
 
 struct Region {
     cap: usize,
-    next: *mut Region,
+    next: *mut Self,
 }
 
 // TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
@@ -27,21 +27,22 @@ struct Region {
 // TODO: should ArenaAllocator's alignment be configurable (MIN_ALIGN generic param)?
 #[derive(Debug)]
 pub struct ArenaAllocator<A: Allocator> {
-    region_alloc: A,
+    backing_alloc: A,
     min_region_size: usize,
     head: Cell<*mut Region>,
     curr: Cell<*mut Region>,
     curr_occupied: Cell<usize>,
+    // TODO: track total_occupied.
 }
 
 impl<A: Allocator> ArenaAllocator<A> {
-    pub const fn new_in(region_alloc: A, preferred_min_region_size: Option<usize>) -> Self {
+    pub const fn new_in(backing_alloc: A, preferred_min_region_size: Option<usize>) -> Self {
         let mut min_region_size = ARENA_DEFAULT_MIN_REGION_SIZE;
         if let Some(preferred) = preferred_min_region_size {
             min_region_size = preferred;
         }
         Self {
-            region_alloc,
+            backing_alloc,
             min_region_size,
             head: Cell::new(null_mut()),
             curr: Cell::new(null_mut()),
@@ -49,13 +50,23 @@ impl<A: Allocator> ArenaAllocator<A> {
         }
     }
 
+    // TODO: (for allocate and allocate_region?) don't you need to be taking into account alignment
+    // of the requested allocation?
+    //
+    //   wouldn't allocation fail if alignment of Region (header) is 16 and size of the requested
+    //   allocation is greater then min_region_size and alignment is greater then the alignment of
+    //   Region (header)?
+    //   this is easy enough to test - do it.
+    //
+    //   :AllocRegionSizeAlign
+
     fn allocate_region(&self, min_size: usize) -> Result<*mut Region, AllocError> {
         unsafe {
             let cap = min_size.max(self.min_region_size);
             let size_including_header = cap + HEADER_SIZE;
-            // NOTE: Layout must be synced with what's in drop().
+            // NOTE: Layout must be synced with what's in drop(). :ArenaRegionLayout
             let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
-            let memory = self.region_alloc.allocate(layout)?;
+            let memory = self.backing_alloc.allocate(layout)?;
 
             let region = memory.cast::<Region>().as_mut();
             region.cap = cap;
@@ -68,7 +79,8 @@ impl<A: Allocator> ArenaAllocator<A> {
     // TODO: maybe put ArenaAllocator::allocate method into Allocator trait?
     pub fn allocate(&self, layout: Layout) -> *mut u8 {
         unsafe {
-            // TODO: do i need to do anything special for zsts?
+            // TODO: do i need some kind of zst check?
+            // if layout.size() == 0 { return layout_dangling(&layout).as_ptr() }
 
             // NOTE: first allocation.
             if self.curr.get().is_null() {
@@ -92,9 +104,7 @@ impl<A: Allocator> ArenaAllocator<A> {
                 let next_occupied = curr_occupied + layout.size() + padding;
                 if next_occupied <= (*curr_ptr).cap {
                     self.curr_occupied.set(next_occupied);
-                    let ret = addr_aligned_up as *mut u8;
-                    debug_assert!(ptr_is_aligned_to(ret, layout.align()));
-                    return ret;
+                    return addr_aligned_up as *mut u8;
                 }
 
                 // NOTE: maybe we did a reset/reset_to_checkpoint.
@@ -184,9 +194,9 @@ impl<A: Allocator> Drop for ArenaAllocator<A> {
                 cursor = region.next;
 
                 let size_including_header = region.cap + HEADER_SIZE;
-                // NOTE: Layout must be synced with what's in allocate_region().
+                // NOTE: Layout must be synced with what's in allocate_region(). :ArenaRegionLayout
                 let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
-                self.region_alloc
+                self.backing_alloc
                     .deallocate(NonNull::from_mut(region).cast(), layout);
             }
         }
