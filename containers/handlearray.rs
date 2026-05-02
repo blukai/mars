@@ -595,7 +595,9 @@ impl<T, A: Allocator> HandleArray<T, A> {
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use crate::{array::PushErrorKind, eek};
+    use alloc::eek;
+
+    use crate::array::PushErrorKind;
 
     use super::*;
 

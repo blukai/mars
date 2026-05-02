@@ -624,9 +624,9 @@ impl<T, M: ArrayMemory<T>> ExactSizeIterator for Drain<'_, T, M> {}
 // ----
 
 #[inline]
-fn try_array_clone_slow<T: Clone, M: ArrayMemory<T>>(
-    src: &Array<T, M>,
-    dst: &mut Array<T, M>,
+fn try_array_clone_slow<T: Clone, M1: ArrayMemory<T>, M2: ArrayMemory<T>>(
+    src: &Array<T, M1>,
+    dst: &mut Array<T, M2>,
 ) -> Result<(), AllocError> {
     assert!(dst.is_empty());
     // NOTE: researve enough space to avoid reallocations that can be caused by logic
@@ -703,7 +703,7 @@ impl<T, const N: usize, A: Allocator> SpillableArray<T, N, A> {
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use crate::{eek, this_is_fine};
+    use alloc::{eek, this_is_fine};
 
     use super::*;
 

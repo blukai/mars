@@ -559,7 +559,7 @@ impl<const N: usize, A: Allocator> SpillableString<N, A> {
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use crate::{eek, this_is_fine};
+    use alloc::{eek, this_is_fine};
 
     use super::*;
 

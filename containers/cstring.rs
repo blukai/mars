@@ -77,7 +77,7 @@ pub type SpillableCString<const N: usize, A: Allocator> = CString<SpillableArray
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use crate::this_is_fine;
+    use alloc::this_is_fine;
 
     use super::*;
 

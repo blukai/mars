@@ -34,6 +34,24 @@ pub(crate) const fn layout_dangling(layout: &Layout) -> NonNull<u8> {
     NonNull::without_provenance(unsafe { NonZero::new_unchecked(layout.align()) })
 }
 
+// NOTE(blukai): alloc::handle_alloc_error wants layout arg, but it doesn't really do anything
+// useful with it and it's annoying to jiggle it around.
+#[cfg(not(no_global_oom_handling))]
+#[cold]
+#[track_caller]
+pub fn eek(_err: AllocError) -> ! {
+    panic!("allocation failed");
+}
+
+#[cfg(not(no_global_oom_handling))]
+#[inline(always)]
+pub fn this_is_fine<T>(result: Result<T, AllocError>) -> T {
+    match result {
+        Ok(ok) => ok,
+        Err(err) => eek(err),
+    }
+}
+
 // TODO: can you do some kind of contextualization of allocator (thread-scoped)?
 // something akin to:
 //

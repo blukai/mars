@@ -142,7 +142,7 @@ unsafe impl<T: Sync + ?Sized, A: Allocator> Sync for Box<T, A> {}
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use crate::this_is_fine;
+    use alloc::this_is_fine;
 
     use super::*;
 
