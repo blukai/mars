@@ -644,8 +644,7 @@ fn try_array_clone_slow<T: Clone, M1: ArrayMemory<T>, M2: ArrayMemory<T>>(
 pub type GrowableArray<T, A: Allocator> = Array<T, GrowableArrayMemory<T, A>>;
 
 impl<T, A: Allocator> GrowableArray<T, A> {
-    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut [T], A) {
-        assert_eq!(self.len(), self.cap());
+    pub fn leak<'a>(self) -> (&'a mut [T], A) {
         let mut this = ManuallyDrop::new(self);
         unsafe {
             (
@@ -653,6 +652,11 @@ impl<T, A: Allocator> GrowableArray<T, A> {
                 ptr::read(this.mem.allocator()),
             )
         }
+    }
+
+    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut [T], A) {
+        assert_eq!(self.len(), self.cap());
+        self.leak()
     }
 
     // ----

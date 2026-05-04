@@ -488,11 +488,16 @@ impl<M: ArrayMemory<u8>> Hash for String<M> {
 pub type GrowableString<A: Allocator> = String<GrowableArrayMemory<u8, A>>;
 
 impl<A: Allocator> GrowableString<A> {
-    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut str, A) {
+    pub fn leak<'a>(self) -> (&'a mut str, A) {
         unsafe {
-            let (slice, alloc) = self.0.leak_with_alloc_assume_full();
+            let (slice, alloc) = self.0.leak();
             (str::from_utf8_unchecked_mut(slice), alloc)
         }
+    }
+
+    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut str, A) {
+        assert_eq!(self.len(), self.cap());
+        self.leak()
     }
 
     // ----
