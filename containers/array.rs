@@ -694,6 +694,10 @@ impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
     }
 }
 
+// NOTE: you can't implement Copy for FixedArray
+//   even though that should be legal for T: Copy, because Drop impls cannot be specialized (meaning
+//   you can't impl drop for growable and spillable array but not for fixed array).
+
 #[expect(type_alias_bounds)]
 pub type SpillableArray<T, const N: usize, A: Allocator> = Array<T, SpillableArrayMemory<T, N, A>>;
 

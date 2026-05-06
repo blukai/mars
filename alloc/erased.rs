@@ -21,13 +21,14 @@
 //   but now you'll be dragging around two pointers (or a fat pointer if you wish).
 //   is it worth it? will see.
 
+use core::mem;
 use std::alloc::Layout;
 use std::ptr::NonNull;
 
 use crate::{AllocError, Allocator, Global};
 
 #[derive(Debug, Clone, Copy)]
-pub struct ErasedAllocator(*const dyn Allocator);
+pub struct ErasedAllocator(*const (dyn Allocator + 'static));
 
 // NOTE: this is just for your awareness. ErasedAllocator is a fat pointer.
 const _: () = assert!(size_of::<ErasedAllocator>() == size_of::<usize>() * 2);
@@ -36,7 +37,7 @@ impl ErasedAllocator {
     /// SAFETY: the allocator reference (&A) you pass-in must outlive both this ErasedAllocator and
     /// all the data allocated through it.
     pub unsafe fn new<A: Allocator>(alloc: &A) -> Self {
-        Self(alloc as *const A as *const dyn Allocator)
+        unsafe { Self(mem::transmute(alloc as *const (dyn Allocator + '_))) }
     }
 }
 
