@@ -347,6 +347,23 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         }
     }
 
+    /// removes all items `it` for which `f(&it)` returns `false`.
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&T) -> bool,
+    {
+        let mut retained_count = 0;
+        let mut next_index = 0;
+        while let Some(it) = self.get(next_index) {
+            if f(it) {
+                self.swap(retained_count, next_index);
+                retained_count += 1;
+            }
+            next_index += 1;
+        }
+        self.truncate(retained_count);
+    }
+
     // TODO: might want to introduce push-like variants of insert
     //   (insert_within_cap_unchecked, insert_within_cap).
     #[inline]
@@ -848,6 +865,31 @@ mod tests {
         b.extend_from_iter(a.drain(..));
         assert_eq!(a, []);
         assert_eq!(b, [8, 16]);
+    }
+
+    #[test]
+    fn test_retain() {
+        let mut this = GrowableArray::new_in(alloc::Global);
+        this.extend_from_array([1, 2, 3, 4]);
+        this.retain(|&x| x % 2 == 0);
+        assert_eq!(this, [2, 4]);
+    }
+
+    #[test]
+    fn test_retain_predicate_order() {
+        for to_keep in [true, false] {
+            let mut number_of_executions = 0;
+            let mut this = GrowableArray::new_in(alloc::Global);
+            this.extend_from_array([1, 2, 3, 4]);
+            let mut next_expected = 1;
+            this.retain(|&x| {
+                assert_eq!(next_expected, x);
+                next_expected += 1;
+                number_of_executions += 1;
+                to_keep
+            });
+            assert_eq!(number_of_executions, 4);
+        }
     }
 
     #[test]
