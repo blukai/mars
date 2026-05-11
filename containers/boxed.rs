@@ -1,7 +1,7 @@
 use core::alloc::Layout;
 use core::mem::{ManuallyDrop, MaybeUninit};
 use core::ptr::NonNull;
-use core::{fmt, ops, slice};
+use core::{fmt, mem, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
@@ -33,6 +33,11 @@ impl<T: ?Sized, A: Allocator> Box<T, A> {
         let ptr = this.ptr.as_ptr();
         let alloc = unsafe { (&raw mut this.alloc).read() };
         (ptr, alloc)
+    }
+
+    pub fn leak<'a>(self) -> (&'a mut T, A) {
+        let mut this = ManuallyDrop::new(self);
+        unsafe { (mem::transmute(this.ptr.as_mut()), ptr::read(&this.alloc)) }
     }
 }
 

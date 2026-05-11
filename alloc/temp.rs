@@ -56,6 +56,7 @@ pub struct TempCheckpoint {
     overflow_region: *mut OverflowRegion,
 }
 
+// TODO: erase overflow alloc.
 #[derive(Debug)]
 pub struct TempAllocator<'data, A: Allocator> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
