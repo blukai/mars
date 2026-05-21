@@ -37,7 +37,7 @@ impl ErasedAllocator {
     /// SAFETY: the allocator reference (&A) you pass-in must outlive both this ErasedAllocator and
     /// all the data allocated through it.
     pub unsafe fn new<A: Allocator>(alloc: &A) -> Self {
-        unsafe { Self(mem::transmute(alloc as *const (dyn Allocator + '_))) }
+        unsafe { Self(mem::transmute(alloc as *const dyn Allocator)) }
     }
 }
 

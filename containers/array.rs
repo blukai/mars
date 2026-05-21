@@ -903,7 +903,7 @@ mod tests {
     #[test]
     fn test_uses_provided_allocator() {
         let mut temp_data = [0; 1000];
-        let temp = alloc::TempAllocator::new(&mut temp_data, alloc::Global, None);
+        let temp = alloc::TempAllocator::new(&mut temp_data, &alloc::Global, None);
 
         let mut this = GrowableArray::<u32, _>::new_in(&temp);
 
@@ -939,7 +939,7 @@ mod tests {
     #[test]
     fn test_matches_std_zst_allocation_strategy() {
         let mut temp_data = [0; 1000];
-        let temp = alloc::TempAllocator::new(&mut temp_data, alloc::Global, None);
+        let temp = alloc::TempAllocator::new(&mut temp_data, &alloc::Global, None);
 
         #[derive(Clone, Copy)]
         struct ZST;
@@ -981,7 +981,7 @@ mod tests {
     #[test]
     fn test_fixed_spill() {
         let mut temp_data = [0; 1000];
-        let temp = alloc::TempAllocator::new(&mut temp_data, alloc::Global, None);
+        let temp = alloc::TempAllocator::new(&mut temp_data, &alloc::Global, None);
 
         let mut this = SpillableArray::<u32, 2, _>::new_in(&temp);
         assert!(this.try_push(8).is_ok());

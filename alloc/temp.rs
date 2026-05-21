@@ -56,9 +56,7 @@ pub struct TempCheckpoint {
     overflow_region: *mut OverflowRegion,
 }
 
-// TODO: erase overflow alloc.
-#[derive(Debug)]
-pub struct TempAllocator<'data, A: Allocator> {
+pub struct TempAllocator<'data> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;
     //   - at least for now i want to be strict and ensure that temp alloc stuff can't be normally
@@ -73,17 +71,17 @@ pub struct TempAllocator<'data, A: Allocator> {
     total_occupied: Cell<usize>,
     high_water_mark: Cell<usize>,
 
-    overflow_alloc: A,
+    overflow_alloc: &'data dyn Allocator,
     min_overflow_region_size: usize,
     overflow_regions: Cell<*mut OverflowRegion>,
     initial_data: *mut u8,
     initial_size: usize,
 }
 
-impl<'data, A: Allocator> TempAllocator<'data, A> {
+impl<'data> TempAllocator<'data> {
     pub const fn new(
         data: &'data mut [u8],
-        overflow_alloc: A,
+        overflow_alloc: &'data dyn Allocator,
         preferred_min_overflow_region_size: Option<usize>,
     ) -> Self {
         let mut min_overflow_region_size = data.len();
@@ -239,13 +237,13 @@ impl<'data, A: Allocator> TempAllocator<'data, A> {
     }
 }
 
-impl<'data, A: Allocator> Drop for TempAllocator<'data, A> {
+impl<'data> Drop for TempAllocator<'data> {
     fn drop(&mut self) {
         self.remove_overflow_regions_down_to(null_mut());
     }
 }
 
-unsafe impl<'data, A: Allocator> Allocator for TempAllocator<'data, A> {
+unsafe impl<'data> Allocator for TempAllocator<'data> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         let data = self.allocate(layout);
         NonNull::new(ptr::slice_from_raw_parts_mut(data, layout.size())).ok_or(AllocError)
@@ -265,7 +263,7 @@ mod tests {
     #[test]
     fn test_temp() {
         let mut temp_data = MaybeUninit::<[u8; 1000]>::uninit();
-        let temp = TempAllocator::new(unsafe { temp_data.assume_init_mut() }, crate::Global, None);
+        let temp = TempAllocator::new(unsafe { temp_data.assume_init_mut() }, &crate::Global, None);
 
         // normal type
         {
@@ -289,7 +287,7 @@ mod tests {
         for align in [2, 4, 8, 16, 32, 64] {
             let temp_layout = Layout::array::<u8>(1 << 20).unwrap();
             let mut temp_memory = crate::Global.allocate(temp_layout).unwrap();
-            let temp = TempAllocator::new(unsafe { temp_memory.as_mut() }, crate::Global, None);
+            let temp = TempAllocator::new(unsafe { temp_memory.as_mut() }, &crate::Global, None);
             let layout = Layout::from_size_align(align, align).unwrap();
             for _ in 0..1024 {
                 let ptr = temp.allocate(layout);

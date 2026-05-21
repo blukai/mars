@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn test_format_macro() {
         let mut temp_data = [0; 1000];
-        let temp = alloc::TempAllocator::new(&mut temp_data, alloc::Global, None);
+        let temp = alloc::TempAllocator::new(&mut temp_data, &alloc::Global, None);
 
         let expected = std::format!("hello, {who}! {:.4}", 42.69, who = "sailor");
         let actual = format!(in &temp, "hello, {who}! {:.4}", 42.69, who = "sailor");
