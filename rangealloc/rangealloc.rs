@@ -8,7 +8,7 @@ use core::fmt;
 use core::ops::{Add, BitAnd, Not, Range, Rem, Sub};
 
 use alloc::{AllocError, Allocator};
-use containers::array::GrowableArray;
+use containers::array::ResizableArray;
 
 // TODO: try to avoid heap allocations in range alloc.
 //   consider doing a generous fixed-size array or something?
@@ -16,7 +16,7 @@ use containers::array::GrowableArray;
 #[derive(Debug, Default)]
 pub struct RangeAllocator<T, A: Allocator> {
     full_range: Range<T>,
-    free_ranges: GrowableArray<Range<T>, A>,
+    free_ranges: ResizableArray<Range<T>, A>,
 }
 
 impl<T, A: Allocator> RangeAllocator<T, A>
@@ -51,7 +51,7 @@ where
         Self {
             full_range: full_range.clone(),
             free_ranges: {
-                let mut ret = GrowableArray::new_in(alloc);
+                let mut ret = ResizableArray::new_in(alloc);
                 ret.push(full_range);
                 ret
             },

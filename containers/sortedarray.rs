@@ -7,7 +7,7 @@ use alloc::{AllocError, Allocator};
 
 use crate::array::{Array, InsertError, InsertErrorKind};
 use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 
 // NOTE: this can be used instead of hashmap.
@@ -151,8 +151,8 @@ impl_partial_eq_for_map! {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableSortedArrayMap<K, V, A: Allocator> =
-    SortedArrayMap<K, V, GrowableArrayMemory<(K, V), A>>;
+pub type ResizableSortedArrayMap<K, V, A: Allocator> =
+    SortedArrayMap<K, V, ResizableArrayMemory<(K, V), A>>;
 
 pub type FixedSortedArrayMap<K, V, const N: usize> =
     SortedArrayMap<K, V, FixedArrayMemory<(K, V), N>>;
@@ -241,7 +241,7 @@ impl<T: fmt::Debug, M: ArrayMemory<T>> fmt::Debug for SortedArraySet<T, M> {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableSortedArraySet<T, A: Allocator> = SortedArraySet<T, GrowableArrayMemory<T, A>>;
+pub type ResizableSortedArraySet<T, A: Allocator> = SortedArraySet<T, ResizableArrayMemory<T, A>>;
 
 pub type FixedSortedArraySet<T, const N: usize> = SortedArraySet<T, FixedArrayMemory<T, N>>;
 
@@ -308,7 +308,7 @@ mod oom {
     }
 
     // :TryCloneIn
-    impl<K: Clone, V: Clone, A: Allocator + Clone> Clone for GrowableSortedArrayMap<K, V, A> {
+    impl<K: Clone, V: Clone, A: Allocator + Clone> Clone for ResizableSortedArrayMap<K, V, A> {
         fn clone(&self) -> Self {
             Self(self.0.clone())
         }
@@ -348,7 +348,7 @@ mod oom {
     }
 
     // :TryCloneIn
-    impl<T: Clone, A: Allocator + Clone> Clone for GrowableSortedArraySet<T, A> {
+    impl<T: Clone, A: Allocator + Clone> Clone for ResizableSortedArraySet<T, A> {
         fn clone(&self) -> Self {
             Self(self.0.clone())
         }
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_map_insert() {
-        let mut this = GrowableSortedArrayMap::<u32, u32, _>::new_in(alloc::Global);
+        let mut this = ResizableSortedArrayMap::<u32, u32, _>::new_in(alloc::Global);
         this.insert(42, 0);
         this.insert(64, 1);
         assert_eq!(this.insert(64, 0), Some(1));
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_map_get() {
-        let mut this = GrowableSortedArrayMap::<u32, &'static str, _>::new_in(alloc::Global);
+        let mut this = ResizableSortedArrayMap::<u32, &'static str, _>::new_in(alloc::Global);
         this.insert(0, "zero");
         this.insert(8, "hachi");
         this.insert(16, "juuroku");
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_map_remove() {
-        let mut this = GrowableSortedArrayMap::<u32, (), _>::new_in(alloc::Global);
+        let mut this = ResizableSortedArrayMap::<u32, (), _>::new_in(alloc::Global);
         this.insert(42, ());
         this.insert(64, ());
         this.insert(27, ());
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_set_insert() {
-        let mut this = GrowableSortedArraySet::<u32, _>::new_in(alloc::Global);
+        let mut this = ResizableSortedArraySet::<u32, _>::new_in(alloc::Global);
         this.insert(64);
         this.insert(42);
         this.insert(27);
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_set_contains() {
-        let mut this = GrowableSortedArraySet::<&'static str, _>::new_in(alloc::Global);
+        let mut this = ResizableSortedArraySet::<&'static str, _>::new_in(alloc::Global);
         this.insert("zero");
         this.insert("hachi");
         this.insert("juuroku");
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_set_remove() {
-        let mut this = GrowableSortedArraySet::<u32, _>::new_in(alloc::Global);
+        let mut this = ResizableSortedArraySet::<u32, _>::new_in(alloc::Global);
         this.insert(42);
         this.insert(27);
         this.insert(64);

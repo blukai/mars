@@ -4,7 +4,7 @@ use alloc::Allocator;
 
 use crate::array::Array;
 use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 
 pub const SLOT_BITS: usize = usize::BITS as usize;
@@ -127,7 +127,7 @@ impl<'a> Iterator for Iter<'a> {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableBitArray<A: Allocator> = BitArray<GrowableArrayMemory<usize, A>>;
+pub type ResizableBitArray<A: Allocator> = BitArray<ResizableArrayMemory<usize, A>>;
 
 // NOTE: see https://github.com/rust-lang/rust/issues/76560
 //   once generic_const_exprs feature is stable (maybe in 2036?) get rid of this macro?
@@ -199,7 +199,7 @@ mod tests {
         }
 
         {
-            let mut bit_array = GrowableBitArray::new_in(10, alloc::Global);
+            let mut bit_array = ResizableBitArray::new_in(10, alloc::Global);
             bit_array.set(5, true);
             all_bits_are_unset_but_one(&bit_array, 5);
         }

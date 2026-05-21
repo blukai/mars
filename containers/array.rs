@@ -10,7 +10,7 @@ use alloc::{AllocError, Allocator};
 use dropguard::DropGuard;
 
 use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 use crate::boxed::Box;
 
@@ -128,7 +128,7 @@ pub struct Array<T, M: ArrayMemory<T>> {
 }
 
 const _: () = {
-    let this = size_of::<Array<u8, GrowableArrayMemory<u8, alloc::Global>>>();
+    let this = size_of::<Array<u8, ResizableArrayMemory<u8, alloc::Global>>>();
     let std = size_of::<std::vec::Vec<u8>>();
     assert!(this <= std)
 };
@@ -658,9 +658,9 @@ fn try_array_clone_slow<T: Clone, M1: ArrayMemory<T>, M2: ArrayMemory<T>>(
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableArray<T, A: Allocator> = Array<T, GrowableArrayMemory<T, A>>;
+pub type ResizableArray<T, A: Allocator> = Array<T, ResizableArrayMemory<T, A>>;
 
-impl<T, A: Allocator> GrowableArray<T, A> {
+impl<T, A: Allocator> ResizableArray<T, A> {
     pub fn leak<'a>(self) -> (&'a mut [T], A) {
         let mut this = ManuallyDrop::new(self);
         unsafe {
@@ -713,7 +713,7 @@ impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
 
 // NOTE: you can't implement Copy for FixedArray
 //   even though that should be legal for T: Copy, because Drop impls cannot be specialized (meaning
-//   you can't impl drop for growable and spillable array but not for fixed array).
+//   you can't impl drop for resizable and spillable array but not for fixed array).
 
 #[expect(type_alias_bounds)]
 pub type SpillableArray<T, const N: usize, A: Allocator> = Array<T, SpillableArrayMemory<T, N, A>>;
@@ -792,7 +792,7 @@ mod oom {
     }
 
     // :TryCloneIn
-    impl<T: Clone, A: Allocator + Clone> Clone for GrowableArray<T, A> {
+    impl<T: Clone, A: Allocator + Clone> Clone for ResizableArray<T, A> {
         fn clone(&self) -> Self {
             let mut ret = Self::new_in(self.mem.allocator().clone());
             this_is_fine(try_array_clone_slow(self, &mut ret));
@@ -822,7 +822,7 @@ mod tests {
 
     #[test]
     fn test_push() {
-        let mut this = GrowableArray::new_in(alloc::Global);
+        let mut this = ResizableArray::new_in(alloc::Global);
         this.push(8);
         this.push(16);
         assert_eq!(this, [8, 16]);
@@ -830,7 +830,7 @@ mod tests {
 
     #[test]
     fn test_pop() {
-        let mut this = GrowableArray::new_in(alloc::Global);
+        let mut this = ResizableArray::new_in(alloc::Global);
         this.extend_from_array([8, 16]);
         assert_eq!(this.pop(), Some(16));
         assert_eq!(this.pop(), Some(8));
@@ -840,18 +840,18 @@ mod tests {
 
     #[test]
     fn test_remove_ordered() {
-        let mut this = GrowableArray::<i32, _>::new_in(alloc::Global);
+        let mut this = ResizableArray::<i32, _>::new_in(alloc::Global);
         this.extend_from_array([1, 2, 3]);
         assert_eq!(this.remove_ordered(0), Some(1));
         assert_eq!(this.remove_ordered(2), None);
 
-        let mut this = GrowableArray::<i32, _>::new_in(alloc::Global);
+        let mut this = ResizableArray::<i32, _>::new_in(alloc::Global);
         assert!(this.remove_ordered(0).is_none());
     }
 
     #[test]
     fn test_index() {
-        let mut this = GrowableArray::new_in(alloc::Global);
+        let mut this = ResizableArray::new_in(alloc::Global);
         this.extend_from_array([8, 16]);
         assert_eq!(this[0], 8);
         assert_eq!(this[1], 16);
@@ -859,9 +859,9 @@ mod tests {
 
     #[test]
     fn test_drain() {
-        let mut a = GrowableArray::new_in(alloc::Global);
+        let mut a = ResizableArray::new_in(alloc::Global);
         a.extend_from_array([8, 16]);
-        let mut b = GrowableArray::new_in(alloc::Global);
+        let mut b = ResizableArray::new_in(alloc::Global);
         b.extend_from_iter(a.drain(..));
         assert_eq!(a, []);
         assert_eq!(b, [8, 16]);
@@ -869,7 +869,7 @@ mod tests {
 
     #[test]
     fn test_retain() {
-        let mut this = GrowableArray::new_in(alloc::Global);
+        let mut this = ResizableArray::new_in(alloc::Global);
         this.extend_from_array([1, 2, 3, 4]);
         this.retain(|&x| x % 2 == 0);
         assert_eq!(this, [2, 4]);
@@ -879,7 +879,7 @@ mod tests {
     fn test_retain_predicate_order() {
         for to_keep in [true, false] {
             let mut number_of_executions = 0;
-            let mut this = GrowableArray::new_in(alloc::Global);
+            let mut this = ResizableArray::new_in(alloc::Global);
             this.extend_from_array([1, 2, 3, 4]);
             let mut next_expected = 1;
             this.retain(|&x| {
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn test_insert() {
-        let mut this = GrowableArray::new_in(alloc::Global);
+        let mut this = ResizableArray::new_in(alloc::Global);
         this.extend_from_array([16]);
         this.insert(0, 8);
         assert_eq!(this, [8, 16]);
@@ -905,7 +905,7 @@ mod tests {
         let mut temp_data = [0; 1000];
         let temp = alloc::TempAllocator::new(&mut temp_data, &alloc::Global, None);
 
-        let mut this = GrowableArray::<u32, _>::new_in(&temp);
+        let mut this = ResizableArray::<u32, _>::new_in(&temp);
 
         this.reserve_amortized(42);
         assert_eq!(temp.make_checkpoint().occupied, 42 * size_of::<u32>());
@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn test_matches_std_reserve_amortized_strategy() {
         {
-            let mut this = GrowableArray::<u32, _>::new_in(alloc::Global);
+            let mut this = ResizableArray::<u32, _>::new_in(alloc::Global);
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
             this.reserve_amortized(9);
@@ -923,7 +923,7 @@ mod tests {
         }
 
         {
-            let mut this = GrowableArray::<u32, _>::new_in(alloc::Global);
+            let mut this = ResizableArray::<u32, _>::new_in(alloc::Global);
             let mut std: std::vec::Vec<u32> = std::vec::Vec::new();
 
             this.reserve_amortized(8);
@@ -944,7 +944,7 @@ mod tests {
         #[derive(Clone, Copy)]
         struct ZST;
 
-        let mut this = GrowableArray::<ZST, _>::new_in(&temp);
+        let mut this = ResizableArray::<ZST, _>::new_in(&temp);
         let mut std = std::vec::Vec::<ZST>::new();
 
         this.extend_from_iter(iter::repeat_n(ZST, 101));
@@ -976,7 +976,7 @@ mod tests {
     }
 
     // ----
-    // fixed growable memory
+    // fixed resizable memory
 
     #[test]
     fn test_fixed_spill() {
@@ -1015,8 +1015,8 @@ mod tests {
         let (mut count_x, mut count_y) = (0, 0);
         {
             let mut tv = TwoArrays {
-                x: GrowableArray::new_in(alloc::Global),
-                y: GrowableArray::new_in(alloc::Global),
+                x: ResizableArray::new_in(alloc::Global),
+                y: ResizableArray::new_in(alloc::Global),
             };
             tv.x.push(DropCounter {
                 count: &mut count_x,
@@ -1043,7 +1043,7 @@ mod tests {
 
         struct_with_counted_drop!(D(u32, bool), DROPS => |this: &D| if this.1 { panic!("panic in `drop`"); });
 
-        let mut v = GrowableArray::new_in(alloc::Global);
+        let mut v = ResizableArray::new_in(alloc::Global);
         v.extend_from_array([
             D(0, false),
             D(1, false),
@@ -1067,7 +1067,7 @@ mod tests {
     fn test_std_truncate_drop() {
         struct_with_counted_drop!(Elem(i32), DROPS);
 
-        let mut v = GrowableArray::new_in(alloc::Global);
+        let mut v = ResizableArray::new_in(alloc::Global);
         v.extend_from_array([Elem(1), Elem(2), Elem(3), Elem(4), Elem(5)]);
 
         assert_eq!(DROPS.get(), 0);
@@ -1079,8 +1079,8 @@ mod tests {
 
     #[test]
     fn test_std_clone() {
-        let v = GrowableArray::<i32, _>::new_in(alloc::Global);
-        let mut w = GrowableArray::<i32, _>::new_in(alloc::Global);
+        let v = ResizableArray::<i32, _>::new_in(alloc::Global);
+        let mut w = ResizableArray::<i32, _>::new_in(alloc::Global);
         w.extend_from_array([1, 2, 3]);
 
         assert_eq!(v, v.clone());
@@ -1093,7 +1093,7 @@ mod tests {
 
     #[test]
     fn test_into_boxed_slice_assume_full() {
-        let mut xs = GrowableArray::new_in(alloc::Global);
+        let mut xs = ResizableArray::new_in(alloc::Global);
         xs.reserve_exact(3);
         xs.extend_from_array([1, 2, 3]);
         let ys = unsafe { xs.into_boxed_slice_assume_full() };

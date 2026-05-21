@@ -5,7 +5,7 @@ use core::{fmt, mem};
 
 use alloc::Allocator;
 
-use crate::array::{GrowableArray, PushError};
+use crate::array::{PushError, ResizableArray};
 
 const DANGLING_GENERATION: u32 = 0;
 const FIRST_GENERATION: u32 = 1;
@@ -330,7 +330,7 @@ impl<T> Ticket<T> {
 #[derive(Debug)]
 pub struct HandleArray<T, A: Allocator> {
     // NOTE: i don't see any reason for making it possible to use other flavors of Array here.
-    entries: GrowableArray<Entry<T>, A>,
+    entries: ResizableArray<Entry<T>, A>,
     free_head: Option<u32>,
 }
 
@@ -338,7 +338,7 @@ pub struct HandleArray<T, A: Allocator> {
 impl<T, A: Allocator + Default> Default for HandleArray<T, A> {
     fn default() -> Self {
         Self {
-            entries: GrowableArray::new_in(A::default()),
+            entries: ResizableArray::new_in(A::default()),
             free_head: None,
         }
     }
@@ -348,7 +348,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
     #[inline]
     pub fn new_in(alloc: A) -> Self {
         Self {
-            entries: GrowableArray::new_in(alloc),
+            entries: ResizableArray::new_in(alloc),
             free_head: None,
         }
     }

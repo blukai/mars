@@ -21,7 +21,6 @@ TODO:
   - improve rangealloc (see TODOs all around it)
   - get rid of NonNull. it does nothing really, except it adds friction.
   - arrays and strings need to be capable of shrinking.
-  - rename Growable* into Resizable*.
   - consider tying ammortized array growth logic to array memory instead of array.
   - consider renaming ArrayMemory into ArrayStorage?
 

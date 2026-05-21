@@ -5,7 +5,7 @@ use alloc::{AllocError, Allocator};
 
 use crate::array::Array;
 use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 
 // NOTE: for now CString is just a newtype on top of array.
@@ -56,7 +56,7 @@ impl<M: ArrayMemory<u8>> ops::Deref for CString<M> {
 // aliases
 
 #[expect(type_alias_bounds)]
-pub type GrowableCString<A: Allocator> = CString<GrowableArrayMemory<u8, A>>;
+pub type ResizableCString<A: Allocator> = CString<ResizableArrayMemory<u8, A>>;
 
 pub type FixedCString<const N: usize> = CString<FixedArrayMemory<u8, N>>;
 
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn test_try_from_str() {
         let s = "udon";
-        let c_string = GrowableCString::from_str_in(s, alloc::Global);
+        let c_string = ResizableCString::from_str_in(s, alloc::Global);
         assert_eq!(c_string.as_c_str(), c"udon");
         assert_eq!(c_string.to_bytes_with_nul().len(), s.len() + 1);
     }

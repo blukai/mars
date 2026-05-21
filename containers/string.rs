@@ -10,7 +10,7 @@ use alloc::{AllocError, Allocator};
 
 use crate::array::Array;
 use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, GrowableArrayMemory, SpillableArrayMemory,
+    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 use crate::boxed::Box;
 
@@ -168,7 +168,7 @@ impl<M: ArrayMemory<u8>> Eq for FromUtf8Error<M> {}
 pub struct String<M: ArrayMemory<u8>>(Array<u8, M>);
 
 const _: () = {
-    let this = size_of::<String<GrowableArrayMemory<u8, alloc::Global>>>();
+    let this = size_of::<String<ResizableArrayMemory<u8, alloc::Global>>>();
     let std = size_of::<std::string::String>();
     assert!(this <= std)
 };
@@ -485,9 +485,9 @@ impl<M: ArrayMemory<u8>> Hash for String<M> {
 // aliases and their makers below
 
 #[expect(type_alias_bounds)]
-pub type GrowableString<A: Allocator> = String<GrowableArrayMemory<u8, A>>;
+pub type ResizableString<A: Allocator> = String<ResizableArrayMemory<u8, A>>;
 
-impl<A: Allocator> GrowableString<A> {
+impl<A: Allocator> ResizableString<A> {
     pub fn leak<'a>(self) -> (&'a mut str, A) {
         unsafe {
             let (slice, alloc) = self.0.leak();
@@ -607,7 +607,7 @@ mod oom {
         }
     }
 
-    impl<A: Allocator + Clone> Clone for GrowableString<A> {
+    impl<A: Allocator + Clone> Clone for ResizableString<A> {
         fn clone(&self) -> Self {
             Self::from_str_in(self.as_str(), self.0.memory().allocator().clone())
         }
@@ -641,10 +641,10 @@ mod oom {
 #[macro_export]
 macro_rules! format {
     (try in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::GrowableString::try_from_format_args_in(format_args!($($arg)*), $alloc)
+        $crate::string::ResizableString::try_from_format_args_in(format_args!($($arg)*), $alloc)
     };
     (in $alloc:expr, $($arg:tt)*) => {
-        $crate::string::GrowableString::from_format_args_in(format_args!($($arg)*), $alloc)
+        $crate::string::ResizableString::from_format_args_in(format_args!($($arg)*), $alloc)
     };
 }
 
@@ -667,12 +667,12 @@ mod tests {
     #[test]
     fn test_as_c_str_within_cap() {
         {
-            let mut string = GrowableString::from_str_in("somen", alloc::Global);
+            let mut string = ResizableString::from_str_in("somen", alloc::Global);
             assert_eq!(string.as_c_str_within_cap(), None);
         }
 
         {
-            let mut string = GrowableString::new_in(alloc::Global);
+            let mut string = ResizableString::new_in(alloc::Global);
             string.reserve_exact(1000);
             string.push_str("soba");
             let c_str = string.as_c_str_within_cap().unwrap();
@@ -686,7 +686,7 @@ mod tests {
 
     #[test]
     fn test_std_push_str() {
-        let mut s = GrowableString::new_in(alloc::Global);
+        let mut s = ResizableString::new_in(alloc::Global);
         s.push_str("");
         assert_eq!(&s[0..], "");
         s.push_str("abc");
@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn test_std_push() {
-        let mut data = GrowableString::from_str_in("ประเทศไทย中", alloc::Global);
+        let mut data = ResizableString::from_str_in("ประเทศไทย中", alloc::Global);
         data.push_char('华');
         data.push_char('b'); // 1 byte
         data.push_char('¢'); // 2 byte
@@ -708,7 +708,7 @@ mod tests {
 
     #[test]
     fn test_std_pop() {
-        let mut data = GrowableString::from_str_in("ประเทศไทย中华b¢€𤭢", alloc::Global);
+        let mut data = ResizableString::from_str_in("ประเทศไทย中华b¢€𤭢", alloc::Global);
         assert_eq!(data.pop(), Some('𤭢')); // 4 bytes
         assert_eq!(data.pop(), Some('€')); // 3 bytes
         assert_eq!(data.pop(), Some('¢')); // 2 bytes
@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_std_clear() {
-        let mut s = GrowableString::from_str_in("12345", alloc::Global);
+        let mut s = ResizableString::from_str_in("12345", alloc::Global);
         s.clear();
         assert_eq!(s.len(), 0);
         assert_eq!(s, "");
@@ -727,7 +727,7 @@ mod tests {
 
     #[test]
     fn test_std_slicing() {
-        let s = GrowableString::from_str_in("foobar", alloc::Global);
+        let s = ResizableString::from_str_in("foobar", alloc::Global);
         assert_eq!("foobar", &s[..]);
         assert_eq!("foo", &s[..3]);
         assert_eq!("bar", &s[3..]);
@@ -736,7 +736,7 @@ mod tests {
 
     #[test]
     fn test_into_boxed_str() {
-        let xs = GrowableString::from_str_in("hello my name is bob", alloc::Global);
+        let xs = ResizableString::from_str_in("hello my name is bob", alloc::Global);
         let ys = unsafe { xs.into_boxed_str_assume_full() };
         assert_eq!(&*ys, "hello my name is bob");
     }
