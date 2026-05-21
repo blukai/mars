@@ -1,5 +1,5 @@
 use core::ffi::CStr;
-use core::{fmt, ops};
+use core::{fmt, mem, ops};
 
 use alloc::{AllocError, Allocator};
 
@@ -64,6 +64,20 @@ impl<M: ArrayMemory<u8>> fmt::Debug for CString<M> {
 
 #[expect(type_alias_bounds)]
 pub type ResizableCString<A: Allocator> = CString<ResizableArrayMemory<u8, A>>;
+
+impl<A: Allocator> ResizableCString<A> {
+    pub fn leak<'a>(self) -> (&'a mut CStr, A) {
+        unsafe {
+            let (slice, alloc) = self.0.leak();
+            (mem::transmute::<&mut [u8], &mut CStr>(slice), alloc)
+        }
+    }
+
+    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut CStr, A) {
+        assert_eq!(self.0.len(), self.0.cap());
+        self.leak()
+    }
+}
 
 pub type FixedCString<const N: usize> = CString<FixedArrayMemory<u8, N>>;
 
