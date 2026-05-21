@@ -1,5 +1,5 @@
 use core::ffi::CStr;
-use core::ops;
+use core::{fmt, ops};
 
 use alloc::{AllocError, Allocator};
 
@@ -49,6 +49,13 @@ impl<M: ArrayMemory<u8>> ops::Deref for CString<M> {
 
     fn deref(&self) -> &Self::Target {
         self.as_c_str()
+    }
+}
+
+impl<M: ArrayMemory<u8>> fmt::Debug for CString<M> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_c_str(), f)
     }
 }
 
