@@ -1,7 +1,3 @@
-use core::alloc::Layout;
-use core::num::NonZero;
-use core::ptr::NonNull;
-
 // NOTE: re-export alloc from allocator-api2.
 //   i don't really want to copypaste it in because there are some nice crates, like hashbrown,
 //   that support allocator-api2.
@@ -19,19 +15,6 @@ mod temp;
 pub(crate) const fn align_up(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     (value + align - 1) & !(align - 1)
-}
-
-// TODO: remove once `core::ptr::is_aligned_to` (`pointer_is_aligned_to` feature flag) is stable.
-#[inline]
-pub(crate) fn ptr_is_aligned_to<T>(ptr: *const T, align: usize) -> bool {
-    debug_assert!(align.is_power_of_two());
-    ptr.addr() & (align - 1) == 0
-}
-
-// TODO: remove once `alloc::Layout::dangling` (`alloc_layout_extra` feature flag) is stable.
-#[inline]
-pub(crate) const fn layout_dangling(layout: &Layout) -> NonNull<u8> {
-    NonNull::without_provenance(unsafe { NonZero::new_unchecked(layout.align()) })
 }
 
 // NOTE(blukai): alloc::handle_alloc_error wants layout arg, but it doesn't really do anything
