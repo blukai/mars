@@ -177,7 +177,6 @@ fn test_read_bytes() {
 // NOTE: tests are stolen from
 // https://github.com/rust-lang/rust/blob/e5b3e68abf170556b9d56c6f9028318e53c9f06b/compiler/rustc_serialize/tests/leb128.rs
 
-#[cfg(feature = "varint")]
 #[test]
 fn test_varuint64() {
     // test 256 evenly spaced values of integer range, integer max value, and some
@@ -205,7 +204,6 @@ fn test_varuint64() {
     }
 }
 
-#[cfg(feature = "varint")]
 #[test]
 fn test_varint64() {
     // test 256 evenly spaced values of integer range, integer max value, and some

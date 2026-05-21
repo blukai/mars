@@ -4,7 +4,6 @@
 use std::error::Error;
 use std::fmt;
 
-#[cfg(feature = "varint")]
 use varint::{
     CONTINUE_BIT, PAYLOAD_BITS, max_varint_size, zigzag_decode32, zigzag_decode64, zigzag_encode64,
 };
@@ -93,14 +92,12 @@ impl fmt::Display for ReadIntoBufferError {
 
 impl Error for ReadIntoBufferError {}
 
-#[cfg(feature = "varint")]
 #[derive(Debug)]
 pub enum ReadVarintError {
     Overflow(OverflowError),
     MalformedVarint,
 }
 
-#[cfg(feature = "varint")]
 impl fmt::Display for ReadVarintError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -110,7 +107,6 @@ impl fmt::Display for ReadVarintError {
     }
 }
 
-#[cfg(feature = "varint")]
 impl Error for ReadVarintError {}
 
 pub struct BitWriter<'a> {
@@ -267,7 +263,6 @@ impl<'a> BitWriter<'a> {
 
     // TODO: varint funcs can be faster
 
-    #[cfg(feature = "varint")]
     pub fn write_uvarint64(&mut self, mut value: u64) -> Result<(), OverflowError> {
         loop {
             if value < CONTINUE_BIT as u64 {
@@ -282,7 +277,6 @@ impl<'a> BitWriter<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "varint")]
     pub fn write_varint64(&mut self, data: i64) -> Result<(), OverflowError> {
         self.write_uvarint64(zigzag_encode64(data))
     }
@@ -519,7 +513,6 @@ impl<'a> BitReader<'a> {
 
     // TODO: varint funcs can be faster
 
-    #[cfg(feature = "varint")]
     #[inline(always)]
     unsafe fn read_uvarint_unchecked<T>(&mut self) -> T
     where
@@ -542,7 +535,6 @@ impl<'a> BitReader<'a> {
         unreachable!("{}", ReadVarintError::MalformedVarint)
     }
 
-    #[cfg(feature = "varint")]
     #[inline(always)]
     fn read_uvarint<T>(&mut self) -> Result<T, ReadVarintError>
     where
@@ -565,42 +557,34 @@ impl<'a> BitReader<'a> {
         Err(ReadVarintError::MalformedVarint)
     }
 
-    #[cfg(feature = "varint")]
     pub unsafe fn read_uvarint64_unchecked(&mut self) -> u64 {
         unsafe { self.read_uvarint_unchecked() }
     }
 
-    #[cfg(feature = "varint")]
     pub fn read_uvarint64(&mut self) -> Result<u64, ReadVarintError> {
         self.read_uvarint()
     }
 
-    #[cfg(feature = "varint")]
     pub unsafe fn read_varint64_unchecked(&mut self) -> i64 {
         zigzag_decode64(unsafe { self.read_uvarint64_unchecked() })
     }
 
-    #[cfg(feature = "varint")]
     pub fn read_varint64(&mut self) -> Result<i64, ReadVarintError> {
         self.read_uvarint64().map(zigzag_decode64)
     }
 
-    #[cfg(feature = "varint")]
     pub unsafe fn read_uvarint32_unchecked(&mut self) -> u32 {
         unsafe { self.read_uvarint_unchecked() }
     }
 
-    #[cfg(feature = "varint")]
     pub fn read_uvarint32(&mut self) -> Result<u32, ReadVarintError> {
         self.read_uvarint()
     }
 
-    #[cfg(feature = "varint")]
     pub unsafe fn read_varint32_unchecked(&mut self) -> i32 {
         zigzag_decode32(unsafe { self.read_uvarint32_unchecked() })
     }
 
-    #[cfg(feature = "varint")]
     pub fn read_varint32(&mut self) -> Result<i32, ReadVarintError> {
         self.read_uvarint32().map(zigzag_decode32)
     }

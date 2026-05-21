@@ -43,23 +43,12 @@ edition.workspace = true
 path = "lib.rs"
 
 [dependencies]
-alloc = { workspace = true, optional = true }
-arg = { workspace = true, optional = true }
-bitbuf = { workspace = true, optional = true }
-containers = { workspace = true, optional = true }
-flag = { workspace = true, optional = true }
-hash = { workspace = true, optional = true }
-rangealloc = { workspace = true, optional = true }
-dropguard = { workspace = true, optional = true }
-varint = { workspace = true, optional = true }
-
-[features]
-alloc = ["dep:alloc"]
-arg = ["dep:arg"]
-bitbuf = ["dep:bitbuf"]
-containers = ["dep:containers", "alloc"]
-flag = ["dep:flag"]
-hash = ["dep:hash"]
-rangealloc = ["dep:rangealloc"]
-dropguard = ["dep:dropguard"]
-varint = ["dep:varint", "bitbuf?/varint"]
+alloc = { workspace = true }
+arg = { workspace = true }
+bitbuf = { workspace = true }
+containers = { workspace = true }
+flag = { workspace = true }
+hash = { workspace = true }
+rangealloc = { workspace = true }
+dropguard = { workspace = true }
+varint = { workspace = true }

@@ -7,14 +7,11 @@ edition.workspace = true
 path = "bitbuf.rs"
 
 [dependencies]
-varint = { workspace = true, optional = true }
+varint = { workspace = true }
 
 [dev-dependencies]
 criterion.workspace = true
 criterion-cycles-per-byte.workspace = true
-
-[features]
-varint = ["dep:varint"]
 
 [[bench]]
 name = "ubit64"
@@ -23,4 +20,3 @@ harness = false
 [[bench]]
 name = "varint"
 harness = false
-required-features = ["varint"]
