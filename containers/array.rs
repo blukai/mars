@@ -17,11 +17,6 @@ use crate::boxed::Box;
 // TODO: think about how to do better job at growing.
 //   maybe with some kind of GrowthStrategy?
 
-enum ReserveMode {
-    Exact,
-    Amortized,
-}
-
 // NOTE: this is copypasted from std.
 //
 // Tiny Vecs are dumb. Skip to:
@@ -29,14 +24,49 @@ enum ReserveMode {
 //   to round up a request of less than 8 bytes to at least 8 bytes.
 // - 4 if items are moderate-sized (<= 1 KiB).
 // - 1 otherwise, to avoid wasting too much space for very short Vecs.
-const fn min_non_zero_cap(size: usize) -> usize {
-    if size == 1 {
+#[inline(always)]
+const fn min_non_zero_cap(item_size: usize) -> usize {
+    if item_size == 1 {
         8
-    } else if size <= 1024 {
+    } else if item_size <= 1024 {
         4
     } else {
         1
     }
+}
+
+enum GrowthMode {
+    Exact,
+    Amortized,
+}
+
+#[inline(always)]
+fn grow_cap(
+    cap: usize,
+    len: usize,
+    additional: usize,
+    item_size: usize,
+    mode: GrowthMode,
+) -> Result<Option<usize>, AllocError> {
+    if cap - len >= additional {
+        return Ok(None);
+    }
+
+    if item_size == 0 {
+        // NOTE: the capacity is already `usize::MAX` for zsts.
+        return Err(AllocError);
+    }
+
+    let new_cap = len.checked_add(additional).ok_or(AllocError)?;
+    let new_cap = match mode {
+        GrowthMode::Exact => new_cap,
+        GrowthMode::Amortized => new_cap
+            // NOTE: the doubling cannot overflow because `cap <= isize::MAX`. `Layout::array`
+            // upholds this.
+            .max(cap * 2)
+            .max(min_non_zero_cap(item_size)),
+    };
+    Ok(Some(new_cap))
 }
 
 // TODO: get rid of this when `slice_range` feature is stable.
@@ -127,12 +157,6 @@ pub struct Array<T, M: ArrayMemory<T>> {
     _ty: PhantomData<T>,
 }
 
-const _: () = {
-    let this = size_of::<Array<u8, ResizableArrayMemory<u8, alloc::Global>>>();
-    let std = size_of::<std::vec::Vec<u8>>();
-    assert!(this <= std)
-};
-
 impl<T, M: ArrayMemory<T>> Array<T, M> {
     #[inline]
     const fn is_zst() -> bool {
@@ -186,39 +210,21 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
     }
 
-    fn try_reserve(&mut self, additional: usize, mode: ReserveMode) -> Result<(), AllocError> {
-        let cap = self.cap();
-        let len = self.len();
-
-        if cap - len >= additional {
+    fn try_reserve(&mut self, additional: usize, mode: GrowthMode) -> Result<(), AllocError> {
+        let Some(new_cap) = grow_cap(self.cap(), self.len(), additional, size_of::<T>(), mode)?
+        else {
             return Ok(());
-        }
-
-        if Self::is_zst() {
-            // NOTE: the capacity is already `usize::MAX` for zsts.
-            return Err(AllocError);
-        }
-
-        let new_cap = len.checked_add(additional).ok_or(AllocError)?;
-        let new_cap = match mode {
-            ReserveMode::Exact => new_cap,
-            ReserveMode::Amortized => new_cap
-                // NOTE: the doubling cannot overflow because `cap <= isize::MAX`. `Layout::array`
-                // upholds this.
-                .max(cap * 2)
-                .max(min_non_zero_cap(size_of::<T>())),
         };
-
         // SAFETY: we ensured above that new cap would be greater then current.
         unsafe { self.mem.grow(new_cap) }
     }
 
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
-        self.try_reserve(additional, ReserveMode::Exact)
+        self.try_reserve(additional, GrowthMode::Exact)
     }
 
     pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
-        self.try_reserve(additional, ReserveMode::Amortized)
+        self.try_reserve(additional, GrowthMode::Amortized)
     }
 
     #[inline]
@@ -470,14 +476,14 @@ impl<T, M: ArrayMemory<T>> ops::DerefMut for Array<T, M> {
 impl<T, M: ArrayMemory<T>> borrow::Borrow<[T]> for Array<T, M> {
     #[inline]
     fn borrow(&self) -> &[T] {
-        &self[..]
+        self.as_slice()
     }
 }
 
 impl<T, M: ArrayMemory<T>> borrow::BorrowMut<[T]> for Array<T, M> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut [T] {
-        &mut self[..]
+        self.as_mut_slice()
     }
 }
 
@@ -659,6 +665,12 @@ fn try_array_clone_slow<T: Clone, M1: ArrayMemory<T>, M2: ArrayMemory<T>>(
 
 #[expect(type_alias_bounds)]
 pub type ResizableArray<T, A: Allocator> = Array<T, ResizableArrayMemory<T, A>>;
+
+const _: () = {
+    let this = size_of::<ResizableArray<u8, alloc::Global>>();
+    let std = size_of::<std::vec::Vec<u8>>();
+    assert!(this <= std)
+};
 
 impl<T, A: Allocator> ResizableArray<T, A> {
     pub fn leak<'a>(self) -> (&'a mut [T], A) {
