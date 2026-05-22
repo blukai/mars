@@ -487,20 +487,12 @@ impl<M: ArrayMemory<u8>> Hash for String<M> {
 pub type ResizableString<A: Allocator> = String<ResizableArrayMemory<u8, A>>;
 
 impl<A: Allocator> ResizableString<A> {
-    pub fn leak<'a>(self) -> (&'a mut str, A) {
+    pub fn leak_with_alloc<'a>(self) -> (&'a mut str, A) {
         unsafe {
-            let (slice, alloc) = self.0.leak();
+            let (slice, alloc) = self.0.leak_with_alloc();
             (str::from_utf8_unchecked_mut(slice), alloc)
         }
     }
-
-    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut str, A) {
-        assert_eq!(self.len(), self.cap());
-        self.leak()
-    }
-
-    // ----
-    // into
 
     pub unsafe fn into_boxed_str_assume_full(self) -> Box<str, A> {
         debug_assert_eq!(self.len(), self.cap());

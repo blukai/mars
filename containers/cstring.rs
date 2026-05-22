@@ -65,16 +65,11 @@ impl<M: ArrayMemory<u8>> fmt::Debug for CString<M> {
 pub type ResizableCString<A: Allocator> = CString<ResizableArrayMemory<u8, A>>;
 
 impl<A: Allocator> ResizableCString<A> {
-    pub fn leak<'a>(self) -> (&'a mut CStr, A) {
+    pub fn leak_with_alloc<'a>(self) -> (&'a mut CStr, A) {
         unsafe {
-            let (slice, alloc) = self.0.leak();
+            let (slice, alloc) = self.0.leak_with_alloc();
             (mem::transmute::<&mut [u8], &mut CStr>(slice), alloc)
         }
-    }
-
-    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut CStr, A) {
-        assert_eq!(self.0.len(), self.0.cap());
-        self.leak()
     }
 }
 

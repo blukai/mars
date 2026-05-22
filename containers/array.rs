@@ -787,8 +787,7 @@ impl<T, A: Allocator> ResizableArray<T, A> {
         }
     }
 
-    // TODO: rename leak to leak_with_alloc.
-    pub fn leak<'a>(self) -> (&'a mut [T], A) {
+    pub fn leak_with_alloc<'a>(self) -> (&'a mut [T], A) {
         let mut this = ManuallyDrop::new(self);
         unsafe {
             (
@@ -797,16 +796,6 @@ impl<T, A: Allocator> ResizableArray<T, A> {
             )
         }
     }
-
-    // TODO: you don't need this uselessness.
-    // put the assert at call-sites that care about len == cap.
-    pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut [T], A) {
-        assert_eq!(self.len(), self.cap());
-        self.leak()
-    }
-
-    // ----
-    // into
 
     pub unsafe fn into_boxed_slice_assume_full(self) -> Box<[T], A> {
         assert_eq!(self.len(), self.cap());

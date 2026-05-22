@@ -35,7 +35,7 @@ impl<T: ?Sized, A: Allocator> Box<T, A> {
         (ptr, alloc)
     }
 
-    pub fn leak<'a>(self) -> (&'a mut T, A) {
+    pub fn leak_with_alloc<'a>(self) -> (&'a mut T, A) {
         let mut this = ManuallyDrop::new(self);
         unsafe { (mem::transmute(this.ptr.as_mut()), ptr::read(&this.alloc)) }
     }
