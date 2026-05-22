@@ -3,9 +3,8 @@ use core::{fmt, mem, ops};
 
 use alloc::{AllocError, Allocator};
 
-use crate::array::Array;
-use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
+use crate::array::{
+    Array, ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 
 // NOTE: for now CString is just a newtype on top of array.

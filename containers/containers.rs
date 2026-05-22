@@ -1,5 +1,4 @@
 pub mod array;
-pub mod arraymemory;
 pub mod bitarray;
 pub mod boxed;
 pub mod cstring;

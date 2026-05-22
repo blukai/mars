@@ -5,9 +5,9 @@ use std::mem;
 
 use alloc::{AllocError, Allocator};
 
-use crate::array::{Array, InsertError, InsertErrorKind};
-use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
+use crate::array::{
+    Array, ArrayMemory, FixedArrayMemory, InsertError, InsertErrorKind, ResizableArrayMemory,
+    SpillableArrayMemory,
 };
 
 // NOTE: this can be used instead of hashmap.

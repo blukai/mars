@@ -2,9 +2,8 @@ use std::mem::MaybeUninit;
 
 use alloc::Allocator;
 
-use crate::array::Array;
-use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
+use crate::array::{
+    Array, ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 
 pub const SLOT_BITS: usize = usize::BITS as usize;
@@ -164,7 +163,7 @@ macro_rules! __make_fixed_bit_array {
     ($len:expr) => {
         <$crate::bitarray::FixedBitArray!($len)>::new_in(
             $len,
-            $crate::arraymemory::FixedArrayMemory::default(),
+            $crate::array::FixedArrayMemory::default(),
         )
     };
 }

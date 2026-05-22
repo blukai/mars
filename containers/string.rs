@@ -8,9 +8,8 @@ use core::{borrow, cmp, mem, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
-use crate::array::Array;
-use crate::arraymemory::{
-    ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
+use crate::array::{
+    Array, ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
 };
 use crate::boxed::Box;
 
