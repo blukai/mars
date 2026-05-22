@@ -30,7 +30,7 @@ use crate::{AllocError, Allocator, Global};
 #[derive(Debug, Clone, Copy)]
 pub struct ErasedAllocator(*const (dyn Allocator + 'static));
 
-// NOTE: this is just for your awareness. ErasedAllocator is a fat pointer.
+// NOTE: this is just for your awareness. ErasedAllocator is a fat pointer (data + vtable).
 const _: () = assert!(size_of::<ErasedAllocator>() == size_of::<usize>() * 2);
 
 impl ErasedAllocator {
@@ -48,51 +48,8 @@ unsafe impl Allocator for ErasedAllocator {
     }
 
     #[inline(always)]
-    fn allocate_zeroed(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        unsafe { (*self.0).allocate_zeroed(layout) }
-    }
-
-    #[inline(always)]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         unsafe { (*self.0).deallocate(ptr, layout) }
-    }
-
-    #[inline(always)]
-    unsafe fn grow(
-        &self,
-        ptr: NonNull<u8>,
-        old_layout: Layout,
-        new_layout: Layout,
-    ) -> Result<NonNull<[u8]>, AllocError> {
-        unsafe { (*self.0).grow(ptr, old_layout, new_layout) }
-    }
-
-    #[inline(always)]
-    unsafe fn grow_zeroed(
-        &self,
-        ptr: NonNull<u8>,
-        old_layout: Layout,
-        new_layout: Layout,
-    ) -> Result<NonNull<[u8]>, AllocError> {
-        unsafe { (*self.0).grow_zeroed(ptr, old_layout, new_layout) }
-    }
-
-    #[inline(always)]
-    unsafe fn shrink(
-        &self,
-        ptr: NonNull<u8>,
-        old_layout: Layout,
-        new_layout: Layout,
-    ) -> Result<NonNull<[u8]>, AllocError> {
-        unsafe { (*self.0).shrink(ptr, old_layout, new_layout) }
-    }
-
-    #[inline(always)]
-    fn by_ref(&self) -> &Self
-    where
-        Self: Sized,
-    {
-        self
     }
 }
 

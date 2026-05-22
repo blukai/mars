@@ -13,8 +13,7 @@ use dropguard::DropGuard;
 use crate::boxed::Box;
 
 pub unsafe trait ArrayMemory<T> {
-    fn as_ptr(&self) -> *const T;
-    fn as_mut_ptr(&mut self) -> *mut T;
+    fn as_ptr(&self) -> *mut T;
     fn cap(&self) -> usize;
     unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError>;
     // TODO: Memory will also need srink method.
@@ -30,7 +29,7 @@ pub unsafe trait ArrayMemory<T> {
 //   to round up a request of less than 8 bytes to at least 8 bytes.
 // - 4 if items are moderate-sized (<= 1 KiB).
 // - 1 otherwise, to avoid wasting too much space for very short Vecs.
-#[inline(always)]
+#[inline]
 const fn min_non_zero_cap(item_size: usize) -> usize {
     if item_size == 1 {
         8
@@ -41,13 +40,13 @@ const fn min_non_zero_cap(item_size: usize) -> usize {
     }
 }
 
-enum GrowthMode {
+pub enum GrowthMode {
     Exact,
     Amortized,
 }
 
-#[inline(always)]
-fn grow_cap(
+#[inline]
+pub fn grow_cap(
     cap: usize,
     len: usize,
     additional: usize,
@@ -165,11 +164,6 @@ pub struct Array<T, M: ArrayMemory<T>> {
 
 impl<T, M: ArrayMemory<T>> Array<T, M> {
     #[inline]
-    const fn is_zst() -> bool {
-        size_of::<T>() == 0
-    }
-
-    #[inline]
     pub fn new_in<I: Into<M>>(mem: I) -> Self {
         Self {
             mem: mem.into(),
@@ -186,7 +180,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     /// will always return `usize::MAX` if `T` is zero-sized.
     #[inline]
     pub fn cap(&self) -> usize {
-        if Self::is_zst() {
+        if size_of::<T>() == 0 {
             usize::MAX
         } else {
             self.mem.cap()
@@ -213,24 +207,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
 
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.mem.as_mut_ptr(), self.len()) }
-    }
-
-    fn try_reserve(&mut self, additional: usize, mode: GrowthMode) -> Result<(), AllocError> {
-        let Some(new_cap) = grow_cap(self.cap(), self.len(), additional, size_of::<T>(), mode)?
-        else {
-            return Ok(());
-        };
-        // SAFETY: we ensured above that new cap would be greater then current.
-        unsafe { self.mem.grow(new_cap) }
-    }
-
-    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
-        self.try_reserve(additional, GrowthMode::Exact)
-    }
-
-    pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
-        self.try_reserve(additional, GrowthMode::Amortized)
+        unsafe { slice::from_raw_parts_mut(self.mem.as_ptr(), self.len()) }
     }
 
     #[inline]
@@ -242,6 +219,23 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
             let ptr = self.as_mut_ptr().add(len).cast::<MaybeUninit<T>>();
             slice::from_raw_parts_mut(ptr, self.cap() - len)
         }
+    }
+
+    fn try_reserve(&mut self, additional: usize, mode: GrowthMode) -> Result<(), AllocError> {
+        let Some(new_cap) = grow_cap(self.cap(), self.len(), additional, size_of::<T>(), mode)?
+        else {
+            return Ok(());
+        };
+        // SAFETY: grow_cap returns Some(new_cap) iff new cap is greater then old.
+        unsafe { self.mem.grow(new_cap) }
+    }
+
+    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), AllocError> {
+        self.try_reserve(additional, GrowthMode::Exact)
+    }
+
+    pub fn try_reserve_amortized(&mut self, additional: usize) -> Result<(), AllocError> {
+        self.try_reserve(additional, GrowthMode::Amortized)
     }
 
     /// SAFETY: the length must be less than the capacity.
@@ -262,8 +256,6 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         None
     }
 
-    // TODO: should there be a custom error for push?
-    //   that will contain value so that the caller can get it back?
     #[inline]
     pub fn try_push(&mut self, value: T) -> Result<(), PushError<T>> {
         if let Err(alloc_error) = self.try_reserve_amortized(1) {
@@ -495,7 +487,7 @@ impl<T, M: ArrayMemory<T>> borrow::BorrowMut<[T]> for Array<T, M> {
 
 impl<T, M: ArrayMemory<T>> Drop for Array<T, M> {
     fn drop(&mut self) {
-        unsafe { ptr::slice_from_raw_parts_mut(self.as_mut_ptr(), self.len()).drop_in_place() };
+        self.clear();
     }
 }
 
@@ -672,28 +664,6 @@ fn try_array_clone_slow<T: Clone, M1: ArrayMemory<T>, M2: ArrayMemory<T>>(
 pub struct ResizableArrayMemory<T, A: Allocator> {
     ptr: NonNull<T>,
     cap: usize,
-    // TODO: is there a sane way to not store alloc?
-    //
-    //   i absolutely hate the idea of storing non-zero sized alloc at each container:
-    //     - having anything in global scope (/static) is very-very awkward in rust;
-    //       this seems to be the only way of making zero-sized allocators.
-    //     - allocators cannot be clonable unless they bind to global state or rc/arc'ed.
-    //     - the fact that each single tiny thing allocates needs to be generic over it's
-    //       allocator. and these generic params need to propagate upwards .. is somewhat nightmarish.
-    //       and there are different kinds of allocators.
-    //       certain things would need multiple alloc params.
-    //       you can solve propagation issue by just specifying concrete allocator though.
-    //
-    //   do it like zig does, accepting allocator as an arg in functions that may allocate?
-    //   with that:
-    //     - _assume_cap methods must not try to allocate (but can return capacity error).
-    //     - _in methods may allocate, these will accept allocator arg.
-    //   but then there would be no way to rely on Drop? instead things would need to be
-    //   deinitialized explicitly:
-    //     - panic on drop and require explicit deinitialization.
-    //     - but then it'll become easy to be confused about which allocator the thing was
-    //       allocated with without some kind of markers.
-    //     - this would remove a feature or rust that i actually kind of enjoy.
     alloc: A,
 }
 
@@ -707,6 +677,20 @@ impl<T, A: Allocator> ResizableArrayMemory<T, A> {
         }
     }
 
+    /// SAFETY: if `T` is a ZST `ptr` must be dangling. otherwise:
+    ///   - `ptr` must have been allocated with the allocator `A`.
+    ///   - `ptr` must point to memory with a size of at least `size_of::<T>() * cap` bytes.
+    #[inline]
+    pub unsafe fn from_raw_parts_in(ptr: *mut T, cap: usize, alloc: A) -> Self {
+        Self {
+            // SAFETY: by the safety requirements, `ptr` is either dangling or pointing to a valid
+            // memory allocation, allocated with `A`.
+            ptr: unsafe { NonNull::new_unchecked(ptr) },
+            cap,
+            alloc,
+        }
+    }
+
     #[inline]
     pub fn allocator(&self) -> &A {
         &self.alloc
@@ -715,12 +699,7 @@ impl<T, A: Allocator> ResizableArrayMemory<T, A> {
 
 unsafe impl<T, A: Allocator> ArrayMemory<T> for ResizableArrayMemory<T, A> {
     #[inline]
-    fn as_ptr(&self) -> *const T {
-        self.ptr.as_ptr()
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut T {
+    fn as_ptr(&self) -> *mut T {
         self.ptr.as_ptr()
     }
 
@@ -757,7 +736,7 @@ unsafe impl<T, A: Allocator> ArrayMemory<T> for ResizableArrayMemory<T, A> {
 
 impl<T, A: Allocator> Drop for ResizableArrayMemory<T, A> {
     fn drop(&mut self) {
-        let layout = unsafe { Layout::array::<T>(self.cap).unwrap_unchecked() };
+        let layout = unsafe { Layout::array::<T>(self.cap()).unwrap_unchecked() };
         // SAFETY: even if T is zst Allocator and ptr is dangling - alloc knows how to handle that.
         unsafe { self.alloc.deallocate(self.ptr.cast(), layout) }
     }
@@ -793,6 +772,22 @@ const _: () = {
 };
 
 impl<T, A: Allocator> ResizableArray<T, A> {
+    /// SAFETY: if `T` is a ZST `ptr` must be dangling. otherwise:
+    ///   - `ptr` must have been allocated with the allocator `A`.
+    ///   - `ptr` must point to memory with a size of at least `size_of::<T>() * cap` bytes.
+    ///   - `len` must be less than or equal to `cap`.
+    #[inline]
+    pub unsafe fn from_raw_parts_in(ptr: *mut T, len: usize, cap: usize, alloc: A) -> Self {
+        Self {
+            // SAFETY: by the safety requirements, `ptr` is either dangling or pointing to a valid
+            // memory allocation, allocated with `A`.
+            mem: unsafe { ResizableArrayMemory::from_raw_parts_in(ptr, cap, alloc) },
+            len,
+            _ty: PhantomData,
+        }
+    }
+
+    // TODO: rename leak to leak_with_alloc.
     pub fn leak<'a>(self) -> (&'a mut [T], A) {
         let mut this = ManuallyDrop::new(self);
         unsafe {
@@ -803,6 +798,8 @@ impl<T, A: Allocator> ResizableArray<T, A> {
         }
     }
 
+    // TODO: you don't need this uselessness.
+    // put the assert at call-sites that care about len == cap.
     pub unsafe fn leak_with_alloc_assume_full<'a>(self) -> (&'a mut [T], A) {
         assert_eq!(self.len(), self.cap());
         self.leak()
@@ -822,13 +819,6 @@ impl<T, A: Allocator> ResizableArray<T, A> {
 
 // ----
 // fixed
-//
-// TODO: consider renaming FixedMemory to StackMemory or something alike.
-//   that is because it is not unreasonable to think of fixed size heap allocations.
-//   the word "fixed" doesn't fully correctly convey the meaning.
-//
-//   word "static" is also an option. not in terms of static location in memory, but
-//   statically-known size.
 
 #[repr(transparent)]
 pub struct FixedArrayMemory<T, const N: usize> {
@@ -837,13 +827,8 @@ pub struct FixedArrayMemory<T, const N: usize> {
 
 unsafe impl<T, const N: usize> ArrayMemory<T> for FixedArrayMemory<T, N> {
     #[inline]
-    fn as_ptr(&self) -> *const T {
-        self.data.as_ptr().cast()
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.data.as_mut_ptr().cast()
+    fn as_ptr(&self) -> *mut T {
+        self.data.as_ptr() as *mut T
     }
 
     #[inline]
@@ -873,16 +858,9 @@ const _: () = {
     assert!(size_of::<FixedArray<u8, 16>>() == 16 + size_of::<usize>());
 };
 
-impl<T, const N: usize> FixedArray<T, N> {
-    #[inline]
-    pub fn new_fixed() -> Self {
-        Self::new_in(FixedArrayMemory::default())
-    }
-}
-
 impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
     fn clone(&self) -> Self {
-        let mut ret = Self::new_fixed();
+        let mut ret = Self::default();
         // NOTE: ok to unwrap. both array's capacities are equal.
         try_array_clone_slow(self, &mut ret).unwrap();
         ret
@@ -933,19 +911,10 @@ impl<T, const N: usize, A: Allocator> SpillableArrayMemory<T, N, A> {
 
 unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMemory<T, N, A> {
     #[inline]
-    fn as_ptr(&self) -> *const T {
+    fn as_ptr(&self) -> *mut T {
         match self {
             Self::Fixed((fixed, _)) => ArrayMemory::as_ptr(fixed),
             Self::Resizable(resizable) => ArrayMemory::as_ptr(resizable),
-            Self::Transitional => unreachable!(),
-        }
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut T {
-        match self {
-            Self::Fixed((fixed, _)) => ArrayMemory::as_mut_ptr(fixed),
-            Self::Resizable(resizable) => ArrayMemory::as_mut_ptr(resizable),
             Self::Transitional => unreachable!(),
         }
     }
@@ -972,7 +941,7 @@ unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMe
                 unsafe {
                     resizable.grow(new_cap)?;
                     resizable
-                        .as_mut_ptr()
+                        .as_ptr()
                         .copy_from_nonoverlapping(fixed.data.as_ptr().cast(), N)
                 };
                 *self = Self::Resizable(resizable);
