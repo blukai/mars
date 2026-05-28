@@ -1,7 +1,7 @@
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull};
-use core::{borrow, ops, slice};
+use core::{borrow, fmt, ops, slice};
 
 use alloc::{AllocError, Allocator};
 
@@ -367,6 +367,12 @@ impl<T> Default for UnmanagedArray<T> {
             len: 0,
             ptr: NonNull::dangling(),
         }
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for UnmanagedArray<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_slice(), f)
     }
 }
 
