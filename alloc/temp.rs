@@ -1,5 +1,6 @@
 use core::alloc::Layout;
 use core::cell::Cell;
+use core::fmt;
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull, null_mut};
 
@@ -56,6 +57,7 @@ pub struct TempCheckpoint {
     overflow_region: *mut OverflowRegion,
 }
 
+// NOTE: whenever you add/remove fields - don't forget to update debug impl. :TempDebug
 pub struct TempAllocator<'data> {
     // NOTE: constructor wants a slice, but we deconstruct it into ptr and cap because:
     //   - it's easier to operate on;
@@ -251,6 +253,25 @@ unsafe impl<'data> Allocator for TempAllocator<'data> {
 
     unsafe fn deallocate(&self, _ptr: NonNull<u8>, _layout: Layout) {
         // NOTE: no individual deallocations. use checkpoints or reset.
+    }
+}
+
+// :TempDebug
+impl<'data> fmt::Debug for TempAllocator<'data> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(core::any::type_name_of_val(self))
+            .field("data", &"<omitted>")
+            .field("size", &self.size)
+            .field("_lifetime", &self._lifetime)
+            .field("occupied", &self.occupied)
+            .field("total_occupied", &self.total_occupied)
+            .field("high_water_mark", &self.high_water_mark)
+            .field("overflow_alloc", &"<omitted>")
+            .field("min_overflow_region_size", &self.min_overflow_region_size)
+            .field("overflow_regions", &self.overflow_regions)
+            .field("initial_data", &self.initial_data)
+            .field("initial_size", &self.initial_size)
+            .finish()
     }
 }
 
