@@ -449,7 +449,12 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
         //   (somehow? how?).
         //   we can't do exactly copy that.
         self.try_reserve_amortized(C)?;
-        unsafe { self.as_mut_ptr().cast::<[T; C]>().write(array) };
+        unsafe {
+            self.as_mut_ptr()
+                .add(self.len())
+                .cast::<[T; C]>()
+                .write(array)
+        };
         self.len += C;
         Ok(())
     }
@@ -1067,6 +1072,14 @@ mod tests {
         this.push(8);
         this.push(16);
         assert_eq!(this, [8, 16]);
+    }
+
+    #[test]
+    fn test_extend_from_array() {
+        let mut this = ResizableArray::new_in(alloc::Global);
+        this.extend_from_array([8, 16]);
+        this.extend_from_array([32]);
+        assert_eq!(this, [8, 16, 32]);
     }
 
     #[test]
