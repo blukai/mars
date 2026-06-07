@@ -602,6 +602,7 @@ mod oom {
     use super::*;
 
     impl<T, A: Allocator> HandleArray<T, A> {
+        #[track_caller]
         pub fn push_with(&mut self, f: impl FnOnce(Handle<T>) -> T) -> Handle<T> {
             match self.try_push_with(f) {
                 Ok(handle) => handle,

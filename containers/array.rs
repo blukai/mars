@@ -989,6 +989,7 @@ mod oom {
             this_is_fine(self.try_reserve_amortized(additional))
         }
 
+        #[track_caller]
         #[inline]
         pub fn push(&mut self, value: T) {
             match self.try_push(value) {
@@ -1000,6 +1001,7 @@ mod oom {
             }
         }
 
+        #[track_caller]
         #[inline]
         pub fn insert(&mut self, index: usize, value: T) {
             match self.try_insert(index, value) {

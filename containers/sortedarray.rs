@@ -284,6 +284,7 @@ mod oom {
     use super::*;
 
     impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
+        #[track_caller]
         pub fn insert(&mut self, key: K, value: V) -> Option<V> {
             match self.try_insert(key, value) {
                 Ok(maybe_existing) => maybe_existing,
@@ -324,6 +325,7 @@ mod oom {
     }
 
     impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
+        #[track_caller]
         pub fn insert(&mut self, value: T) {
             match self.try_insert(value) {
                 Ok(..) => {}

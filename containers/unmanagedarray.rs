@@ -393,6 +393,7 @@ mod oom {
             this_is_fine(self.try_reserve_amortized(alloc, additional))
         }
 
+        #[track_caller]
         #[inline]
         pub fn push(&mut self, alloc: &impl Allocator, value: T) {
             match self.try_push(alloc, value) {
@@ -404,6 +405,7 @@ mod oom {
             }
         }
 
+        #[track_caller]
         #[inline]
         pub fn insert(&mut self, alloc: &impl Allocator, index: usize, value: T) {
             match self.try_insert(alloc, index, value) {

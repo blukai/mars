@@ -588,6 +588,7 @@ mod oom {
             this_is_fine(Self::try_from_str_in(s, mem))
         }
 
+        #[track_caller]
         #[inline]
         pub fn from_format_args_in<I: Into<M>>(args: fmt::Arguments<'_>, mem: I) -> Self {
             match Self::try_from_format_args_in(args, mem) {
