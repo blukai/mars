@@ -308,7 +308,7 @@ impl<T> UnmanagedArray<T> {
     ///   - `ptr` must point to memory with a size of at least `size_of::<T>() * cap` bytes.
     ///   - `len` must be less than or equal to `cap`.
     #[inline]
-    pub unsafe fn from_raw_parts_in(ptr: *mut T, len: usize, cap: usize) -> Self {
+    pub unsafe fn from_raw_parts(ptr: *mut T, len: usize, cap: usize) -> Self {
         Self {
             cap,
             len,
