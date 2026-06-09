@@ -802,7 +802,7 @@ impl<T, A: Allocator> ResizableArray<T, A> {
         }
     }
 
-    pub unsafe fn into_boxed_slice_assume_full(self) -> Box<[T], A> {
+    pub fn into_boxed_slice_assume_full(self) -> Box<[T], A> {
         assert_eq!(self.len(), self.cap());
         let mut this = ManuallyDrop::new(self);
         unsafe { Box::from_raw_in(this.as_mut_slice(), ptr::read(this.mem.allocator())) }
@@ -1352,7 +1352,7 @@ mod tests {
         let mut xs = ResizableArray::new_in(alloc::Global);
         xs.reserve_exact(3);
         xs.extend_from_array([1, 2, 3]);
-        let ys = unsafe { xs.into_boxed_slice_assume_full() };
+        let ys = xs.into_boxed_slice_assume_full();
         assert_eq!(&*ys, [1, 2, 3]);
     }
 }

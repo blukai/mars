@@ -494,13 +494,11 @@ impl<A: Allocator> ResizableString<A> {
         }
     }
 
-    pub unsafe fn into_boxed_str_assume_full(self) -> Box<str, A> {
+    pub fn into_boxed_str_assume_full(self) -> Box<str, A> {
         debug_assert_eq!(self.len(), self.cap());
-        unsafe {
-            let boxed_slice = self.0.into_boxed_slice_assume_full();
-            let (ptr, alloc) = Box::into_raw_with_alloc(boxed_slice);
-            Box::from_raw_in(ptr as *mut str, alloc)
-        }
+        let boxed_slice = self.0.into_boxed_slice_assume_full();
+        let (ptr, alloc) = Box::into_raw_with_alloc(boxed_slice);
+        unsafe { Box::from_raw_in(ptr as *mut str, alloc) }
     }
 
     // pub fn into_boxed_slice_maybe_shrink(self) -> boxed::Box<[T], A> { todo!() }
@@ -729,7 +727,7 @@ mod tests {
     #[test]
     fn test_into_boxed_str() {
         let xs = ResizableString::from_str_in("hello my name is bob", alloc::Global);
-        let ys = unsafe { xs.into_boxed_str_assume_full() };
+        let ys = xs.into_boxed_str_assume_full();
         assert_eq!(&*ys, "hello my name is bob");
     }
 }
