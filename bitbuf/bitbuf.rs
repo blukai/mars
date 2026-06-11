@@ -524,7 +524,7 @@ impl<'a> BitReader<'a> {
         }
 
         let mut value = T::from(byte & 0x7f);
-        for count in 1..=max_varint_size::<T>() {
+        for count in 1..max_varint_size::<T>() {
             let byte = unsafe { self.read_byte_unchecked() };
             value |= (T::from(byte & PAYLOAD_BITS)) << (count * 7);
             if (byte & CONTINUE_BIT) == 0 {
@@ -546,7 +546,7 @@ impl<'a> BitReader<'a> {
         }
 
         let mut value = T::from(byte & 0x7f);
-        for count in 1..=max_varint_size::<T>() {
+        for count in 1..max_varint_size::<T>() {
             let byte = self.read_byte().map_err(ReadVarintError::Overflow)?;
             value |= (T::from(byte & PAYLOAD_BITS)) << (count * 7);
             if (byte & CONTINUE_BIT) == 0 {
