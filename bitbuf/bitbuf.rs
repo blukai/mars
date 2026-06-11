@@ -220,6 +220,20 @@ impl<'a> BitWriter<'a> {
         Ok(())
     }
 
+    pub fn write_bool(&mut self, value: bool) -> Result<(), OverflowError> {
+        if self.cur_bit + 1 > self.data_bits {
+            return Err(OverflowError);
+        }
+
+        unsafe {
+            *self.data.get_unchecked_mut(self.cur_bit >> 6) |=
+                (value as u8 as u64 & 1) << (self.cur_bit & 63);
+        }
+        self.cur_bit += 1;
+
+        Ok(())
+    }
+
     pub fn write_byte(&mut self, data: u8) -> Result<(), OverflowError> {
         self.write_ubit64(data as u64, 8)
     }

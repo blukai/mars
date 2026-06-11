@@ -236,3 +236,14 @@ fn test_varint64() {
         assert_eq!(got, *want);
     }
 }
+
+#[test]
+fn test_bool_roundtrip() {
+    let mut buf = [0u8; 8];
+    let mut bw = BitWriter::new(&mut buf);
+    let seq = [true, false, true];
+    seq.iter().for_each(|&value| bw.write_bool(value).unwrap());
+    let mut br = BitReader::new(&buf);
+    let readout = seq.map(|_| br.read_bool().unwrap());
+    assert_eq!(seq, readout);
+}
