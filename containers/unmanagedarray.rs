@@ -63,7 +63,7 @@ impl<T> UnmanagedArray<T> {
 
     fn try_reserve(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         additional: usize,
         mode: GrowthMode,
     ) -> Result<(), AllocError> {
@@ -92,7 +92,7 @@ impl<T> UnmanagedArray<T> {
 
     pub fn try_reserve_exact(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         additional: usize,
     ) -> Result<(), AllocError> {
         self.try_reserve(alloc, additional, GrowthMode::Exact)
@@ -100,7 +100,7 @@ impl<T> UnmanagedArray<T> {
 
     pub fn try_reserve_amortized(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         additional: usize,
     ) -> Result<(), AllocError> {
         self.try_reserve(alloc, additional, GrowthMode::Amortized)
@@ -125,7 +125,7 @@ impl<T> UnmanagedArray<T> {
     }
 
     #[inline]
-    pub fn try_push(&mut self, alloc: &impl Allocator, value: T) -> Result<(), PushError<T>> {
+    pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<(), PushError<T>> {
         if let Err(alloc_error) = self.try_reserve_amortized(alloc, 1) {
             return Err(PushError {
                 kind: PushErrorKind::OutOfMemory(alloc_error),
@@ -208,7 +208,7 @@ impl<T> UnmanagedArray<T> {
     #[inline]
     pub fn try_insert(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         index: usize,
         value: T,
     ) -> Result<(), InsertError<T>> {
@@ -246,13 +246,13 @@ impl<T> UnmanagedArray<T> {
 
     pub fn try_extend_from_iter<I: Iterator<Item = T>>(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         mut iter: I,
     ) -> Result<(), AllocError> {
         while let Some(it) = iter.next() {
             if self.cap() == self.len() {
                 let (lower, _) = iter.size_hint();
-                self.try_reserve_amortized(alloc, lower.saturating_add(1))?;
+                self.try_reserve_amortized(&alloc, lower.saturating_add(1))?;
             }
             unsafe { self.push_within_cap_unchecked(it) };
         }
@@ -262,7 +262,7 @@ impl<T> UnmanagedArray<T> {
     /// use [`Self::try_extend_from_iter`] for items that cannot be copied.
     pub fn try_extend_from_slice_copy(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         slice: &[T],
     ) -> Result<(), AllocError>
     where
@@ -281,7 +281,7 @@ impl<T> UnmanagedArray<T> {
 
     pub fn try_extend_from_array<const C: usize>(
         &mut self,
-        alloc: &impl Allocator,
+        alloc: impl Allocator,
         array: [T; C],
     ) -> Result<(), AllocError> {
         // NOTE: this is somewhat of an untangled version of what std does
@@ -321,7 +321,7 @@ impl<T> UnmanagedArray<T> {
     // ----
     // NOTE: below are UnmanagedArray-specific functions
 
-    pub fn deinit(&mut self, alloc: &impl Allocator) {
+    pub fn deinit(&mut self, alloc: impl Allocator) {
         self.clear();
         let layout = unsafe { Layout::array::<T>(self.cap()).unwrap_unchecked() };
         // SAFETY: even if T is zst Allocator and ptr is dangling - alloc knows how to handle that.
@@ -384,18 +384,18 @@ mod oom {
 
     impl<T> UnmanagedArray<T> {
         #[inline]
-        pub fn reserve_exact(&mut self, alloc: &impl Allocator, additional: usize) {
+        pub fn reserve_exact(&mut self, alloc: impl Allocator, additional: usize) {
             this_is_fine(self.try_reserve_exact(alloc, additional))
         }
 
         #[inline]
-        pub fn reserve_amortized(&mut self, alloc: &impl Allocator, additional: usize) {
+        pub fn reserve_amortized(&mut self, alloc: impl Allocator, additional: usize) {
             this_is_fine(self.try_reserve_amortized(alloc, additional))
         }
 
         #[track_caller]
         #[inline]
-        pub fn push(&mut self, alloc: &impl Allocator, value: T) {
+        pub fn push(&mut self, alloc: impl Allocator, value: T) {
             match self.try_push(alloc, value) {
                 Ok(..) => {}
                 Err(PushError {
@@ -407,7 +407,7 @@ mod oom {
 
         #[track_caller]
         #[inline]
-        pub fn insert(&mut self, alloc: &impl Allocator, index: usize, value: T) {
+        pub fn insert(&mut self, alloc: impl Allocator, index: usize, value: T) {
             match self.try_insert(alloc, index, value) {
                 Ok(..) => {}
                 Err(InsertError {
@@ -425,12 +425,12 @@ mod oom {
         // extend from
 
         #[inline]
-        pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, alloc: &impl Allocator, iter: I) {
+        pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, alloc: impl Allocator, iter: I) {
             this_is_fine(self.try_extend_from_iter(alloc, iter))
         }
 
         #[inline]
-        pub fn extend_from_slice_copy(&mut self, alloc: &impl Allocator, other: &[T])
+        pub fn extend_from_slice_copy(&mut self, alloc: impl Allocator, other: &[T])
         where
             T: Copy,
         {
@@ -438,7 +438,7 @@ mod oom {
         }
 
         #[inline]
-        pub fn extend_from_array<const C: usize>(&mut self, alloc: &impl Allocator, array: [T; C]) {
+        pub fn extend_from_array<const C: usize>(&mut self, alloc: impl Allocator, array: [T; C]) {
             this_is_fine(self.try_extend_from_array(alloc, array))
         }
     }
