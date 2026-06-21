@@ -2,6 +2,8 @@
 //!
 //! incorporates tsoding's idea for ignoring flags: <https://github.com/tsoding/flag.h>.
 
+// TODO: multi-value.
+
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::ops::{ControlFlow, Range};
@@ -10,9 +12,6 @@ use std::{cmp, error, fmt, io, str};
 
 use alloc::Allocator;
 use containers::sortedarray::{SortedArrayCompare, SpillableSortedArraySet};
-
-// NOTE: this is tsoding's idea, see https://github.com/tsoding/flag.h.
-pub const IGNORE_MARKER: char = '/';
 
 pub type ValueError = Box<dyn std::error::Error>;
 
@@ -23,10 +22,6 @@ pub trait Value<'s>: fmt::Debug {
 
     fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError>;
 
-    fn type_name(&self) -> &'static str {
-        std::any::type_name::<Self>()
-    }
-
     fn type_is_bool() -> bool
     where
         Self: Sized,
@@ -34,11 +29,7 @@ pub trait Value<'s>: fmt::Debug {
         false
     }
 
-    fn is_bool(&self) -> bool {
-        false
-    }
-
-    fn is_none(&self) -> bool {
+    fn option_is_none(&self) -> bool {
         false
     }
 }
@@ -66,10 +57,6 @@ impl<'s> Value<'s> for bool {
         Self: Sized,
     {
         true
-    }
-
-    fn is_bool(&self) -> bool {
-        Self::type_is_bool()
     }
 }
 
@@ -108,12 +95,8 @@ where
         T::type_is_bool()
     }
 
-    fn is_bool(&self) -> bool {
-        Self::type_is_bool()
-    }
-
-    fn is_none(&self) -> bool {
-        self.is_none()
+    fn option_is_none(&self) -> bool {
+        Option::is_none(self)
     }
 }
 
@@ -170,21 +153,15 @@ impl_value_for_from_owned!(PathBuf);
 impl_value_for_from_owned!(String);
 
 #[test]
-fn test_is_bool() {
-    assert!(true.is_bool());
-    assert!(false.is_bool());
-    assert!(None::<bool>.is_bool());
-    assert!(bool::type_is_bool());
-
-    assert!(!42u8.is_bool());
-    assert!(!None::<u8>.is_bool());
-    assert!(!u8::type_is_bool());
+fn test_type_is_bool() {
+    assert!(<bool as Value>::type_is_bool());
+    assert!(<Option<bool> as Value>::type_is_bool());
 }
 
 #[test]
-fn test_is_none() {
-    assert!((&None::<bool> as &dyn Value).is_none());
-    assert!(!(&Some(true) as &dyn Value).is_none());
+fn test_option_is_none() {
+    assert!((&None::<u8> as &dyn Value).option_is_none());
+    assert!(!(&Some(0) as &dyn Value).option_is_none());
 }
 
 #[derive(Debug)]
@@ -266,6 +243,7 @@ struct Flag<'a, 's> {
     value: &'a mut dyn Value<'s>,
     usage: &'a str,
     dirty: bool,
+    value_type_is_bool: bool,
 }
 
 impl<'a, 's> SortedArrayCompare for Flag<'a, 's> {
@@ -302,8 +280,9 @@ where
 
     let arg = arg_kind.into_cow_str().map_err(ParseError::InvalidArg)?;
 
+    // NOTE: this is tsoding's idea, see https://github.com/tsoding/flag.h.
     let mut ignore = false;
-    if arg[num_minuses..].starts_with(IGNORE_MARKER) {
+    if arg[num_minuses..].starts_with('/') {
         num_minuses += 1;
         ignore = true;
     }
@@ -314,16 +293,11 @@ where
     }
 
     let mut maybe_value_range = None::<Range<usize>>;
-    for (i, c) in name.char_indices() {
-        if c == '=' {
-            maybe_value_range = {
-                let start = num_minuses + i + 1;
-                let end = num_minuses + name.len();
-                Some(start..end)
-            };
-            name = &name[..i];
-            break;
-        }
+    if let Some(i) = name.find('=') {
+        let start = num_minuses + i + 1;
+        let end = num_minuses + name.len();
+        maybe_value_range = Some(start..end);
+        name = &name[..i];
     }
 
     let Some(flag) = flags.iter_mut().find(|f| f.name == name) else {
@@ -345,7 +319,7 @@ where
         //   it doesn't require an arg, but is allowed to have it.
         //   unlike with any other kind of flag space is not allowed between flag name and its
         //   value because of * wildcard.
-        None if flag.value.is_bool() => Cow::Borrowed("true"),
+        None if flag.value_type_is_bool => Cow::Borrowed("true"),
         _ => args
             .next()
             .ok_or(ParseError::MissingValue {
@@ -375,12 +349,12 @@ pub struct FlagSet<'a, 's, const N: usize = 32, A: Allocator = alloc::Global> {
 }
 
 impl<'a, 's> FlagSet<'a, 's> {
-    pub fn add(mut self, name: &'a str, value: &'a mut dyn Value<'s>, usage: &'a str) -> Self {
+    pub fn add<T: Value<'s>>(mut self, name: &'a str, value: &'a mut T, usage: &'a str) -> Self {
         assert!(!name.is_empty(), "empty flag name");
         assert!(!name.starts_with('-'), "flag {name} starts with -");
         assert!(!name.contains('='), "flag {name} contains =");
 
-        let exists = self.flags.0.iter().find(|f| f.name == name).is_some();
+        let exists = self.flags.0.iter().any(|f| f.name == name);
         assert!(!exists, "flag redefined: {name}");
 
         self.flags.insert(Flag {
@@ -388,6 +362,7 @@ impl<'a, 's> FlagSet<'a, 's> {
             value,
             usage,
             dirty: false,
+            value_type_is_bool: T::type_is_bool(),
         });
         self
     }
@@ -403,13 +378,14 @@ impl<'a, 's> FlagSet<'a, 's> {
             usage,
             value,
             dirty,
+            ..
         } in self.flags.0.iter()
         {
             write!(w, "  -{name:<width$}  ")?;
             if !usage.trim().is_empty() {
                 write!(w, "{usage}")?;
             }
-            match (value.is_none(), dirty) {
+            match (value.option_is_none(), dirty) {
                 (false, false) => write!(w, " (default: {value:?})")?,
                 (false, true) => write!(w, " (dirty: {value:?})")?,
                 _ => {}
