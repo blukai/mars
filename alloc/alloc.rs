@@ -47,17 +47,27 @@ pub fn this_is_fine<T>(result: Result<T, AllocError>) -> T {
 // TODO: can you do some kind of contextualization of allocator (thread-scoped)?
 // something akin to:
 //
-// thread_local! {
-//     static ALLOC_OVERRIDE: Cell<AllocatorKind> = Cell::new(AllocatorKind::Default);
-// }
-// and then in global_allocator thingie
-// ALLOC_OVERRIDE.with(|k| match k.get() {
-//     AllocatorKind::Arena => ARENA.alloc(layout),
-//     AllocatorKind::Default => System.alloc(layout),
-// })
+//   thread_local! {
+//       static ALLOC_OVERRIDE: Cell<AllocatorKind> = Cell::new(AllocatorKind::Default);
+//   }
+//   and then in global_allocator thingie
+//   ALLOC_OVERRIDE.with(|k| match k.get() {
+//       AllocatorKind::Arena => ARENA.alloc(layout),
+//       AllocatorKind::Default => System.alloc(layout),
+//   })
 //
-// before you do anything though - look into postgress allocator. it i have heard or read
-// somewhere that it mayhaps does something similar, so this idea is inspied by that.
+//   before you do anything though - look into postgress allocator. it i have heard or read
+//   somewhere that it mayhaps does something similar, so this idea is inspied by that.
 //
-// here you would switch to temp alloc (or arena with checkpoint) compile shader and discard
-// everything after you're done and don't need "code" anymore.
+//   here you would switch to temp alloc (or arena with checkpoint) compile shader and discard
+//   everything after you're done and don't need "code" anymore.
+//
+//   ----
+//
+//   yup! posgress indeed does something similar
+//   see https://www.postgresql.org/docs/current/spi-memory.html
+//   it "stacks" allocators:
+//     > SPI_connect creates a new memory context and makes it current. SPI_finish restores the
+//     previous current memory context and destroys the context created by SPI_connect.
+//   although not quite what i had in mind.
+//   see https://github.com/postgres/postgres/blob/e0511883cae27ec70834c52bbde1863aa11d81e1/src/backend/executor/spi.c#L97

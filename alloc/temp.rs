@@ -16,7 +16,7 @@ use crate::{AllocError, Allocator, align_up};
 //
 //   it's nice to be able to overflow from time to time on some kind of ocasional rare burst.
 //   for example you need to rasterize a buch of font glyphs and upload them to the gpu.
-//
+
 // NOTE: each platform (and runtime , etc..) have different default stack sizes
 //   - glib = 2-10mb
 //   - musl = 128k (or 80k in old versions)
@@ -25,17 +25,7 @@ use crate::{AllocError, Allocator, align_up};
 //     see https://learn.microsoft.com/en-us/windows/win32/procthread/thread-stack-size
 //   - apple = 512k for secondary threads
 //     see https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/CreatingThreads/CreatingThreads.html
-//
-// TODO: figure out how to properly make this into thread-local static
-//   with configurable size.
-//   and maybe do the thing that Global does - impl Allocator for Temporary that is zero-sized that
-//   just knows where to go.
-//   look into:
-//     - https://internals.rust-lang.org/t/idea-global-static-variables-extendable-at-compile-time/9879
-//     - https://github.com/mmastrac/rust-ctor
-//     - https://github.com/dtolnay/linkme
-//     - https://users.rust-lang.org/t/use-compile-time-parameter-inside-program/110265
-//   also look into how std::alloc::set_alloc_error_hook and std::panic::set_hook work.
+pub const DEFAULT_TEMP_DATA_SIZE: usize = 40 << 10;
 
 #[derive(Debug)]
 struct OverflowRegion {
@@ -86,10 +76,10 @@ impl<'data> TempAllocator<'data> {
         overflow_alloc: &'data dyn Allocator,
         preferred_min_overflow_region_size: Option<usize>,
     ) -> Self {
-        let mut min_overflow_region_size = data.len();
-        if let Some(preferred) = preferred_min_overflow_region_size {
-            min_overflow_region_size = preferred;
-        }
+        let min_overflow_region_size = match preferred_min_overflow_region_size {
+            Some(preferred) => preferred,
+            None => data.len(),
+        };
         Self {
             data: Cell::new(data.as_mut_ptr()),
             size: Cell::new(data.len()),
@@ -260,7 +250,7 @@ unsafe impl<'data> Allocator for TempAllocator<'data> {
 impl<'data> fmt::Debug for TempAllocator<'data> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(core::any::type_name_of_val(self))
-            .field("data", &"<omitted>")
+            .field("data", &self.data)
             .field("size", &self.size)
             .field("_lifetime", &self._lifetime)
             .field("occupied", &self.occupied)

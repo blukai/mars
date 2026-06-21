@@ -20,6 +20,13 @@
 //   the trade-off here is that your A: Allocator maye have been zero sized;
 //   but now you'll be dragging around two pointers (or a fat pointer if you wish).
 //   is it worth it? will see.
+//
+//   ----
+//
+//   **actually** you can do (from the example above):
+//   pub fn render(&mut self, draw_data: &sx::DrawData<impl Allocator>, ..);
+//   fn draw_text(&mut self, draw_data: &sx::DrawData<impl Allocator>, .. );
+//   and different things can refer to different allocators.
 
 use core::mem;
 use std::alloc::Layout;
