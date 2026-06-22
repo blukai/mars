@@ -37,6 +37,7 @@ fn main() {
     let mut f64_flag = None::<f64>;
     let mut i8_flag = -42_i8;
     let mut custom_flag = None::<Custom>;
+    let mut multi_flag = containers::sortedarray::FixedSortedArraySet::<Cow<'_, str>, 8>::default();
 
     let maybe_argc_argv = arg::argc_argv();
     {
@@ -48,7 +49,8 @@ fn main() {
             .add("bool", &mut bool_flag, "bool flag")
             .add("f64", &mut f64_flag, "f64 flag")
             .add("i8", &mut i8_flag, "i8 flag")
-            .add("custom", &mut custom_flag, "custom flag");
+            .add("custom", &mut custom_flag, "custom flag")
+            .add("multi", &mut multi_flag, "multi flag");
         let parse_outcome = if let Some((argc, argv)) = maybe_argc_argv {
             flag_set.parse(
                 arg::ArgIter::new(argc, argv)
@@ -88,4 +90,5 @@ fn main() {
     println!("f64={f64_flag:?}");
     println!("i8={i8_flag}");
     println!("custom={custom_flag:?}");
+    println!("multi={multi_flag:?}");
 }

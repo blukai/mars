@@ -2,8 +2,6 @@
 //!
 //! incorporates tsoding's idea for ignoring flags: <https://github.com/tsoding/flag.h>.
 
-// TODO: multi-value.
-
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::ops::{ControlFlow, Range};
@@ -11,7 +9,8 @@ use std::path::PathBuf;
 use std::{cmp, error, fmt, io, str};
 
 use alloc::Allocator;
-use containers::sortedarray::{SortedArrayCompare, SpillableSortedArraySet};
+use containers::array::ArrayMemory;
+use containers::sortedarray::{SortedArrayCompare, SortedArraySet, SpillableSortedArraySet};
 
 pub type ValueError = Box<dyn std::error::Error>;
 
@@ -85,7 +84,11 @@ where
     }
 
     fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
-        Self::parse(s).map(|v| *self = v)
+        if let Some(inner) = self {
+            inner.assign(s)
+        } else {
+            Self::parse(s).map(|v| *self = v)
+        }
     }
 
     fn type_is_bool() -> bool
@@ -151,6 +154,23 @@ macro_rules! impl_value_for_from_owned {
 impl_value_for_from_owned!(OsString);
 impl_value_for_from_owned!(PathBuf);
 impl_value_for_from_owned!(String);
+
+impl<'s, T: Value<'s> + Ord, M: ArrayMemory<T>> Value<'s> for SortedArraySet<T, M> {
+    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
+    where
+        Self: Sized,
+    {
+        _ = s;
+        // NOTE: this is a developer error.
+        //
+        // MAYBE: can type system can protect from this?
+        unreachable!("{} must be initialized", std::any::type_name::<Self>());
+    }
+
+    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+        T::parse(s).map(|v| self.insert(v))
+    }
+}
 
 #[test]
 fn test_type_is_bool() {
