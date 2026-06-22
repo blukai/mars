@@ -1,5 +1,6 @@
 use core::ffi::CStr;
-use core::{fmt, mem, ops};
+use core::hash::{Hash, Hasher};
+use core::{borrow, cmp, fmt, mem, ops, ptr};
 
 use alloc::{AllocError, Allocator};
 
@@ -59,10 +60,71 @@ impl<M: ArrayMemory<u8>> ops::Deref for CString<M> {
     }
 }
 
+impl<M: ArrayMemory<u8>> borrow::Borrow<CStr> for CString<M> {
+    #[inline]
+    fn borrow(&self) -> &CStr {
+        self.as_c_str()
+    }
+}
+
+impl<M: ArrayMemory<u8> + Default> Default for CString<M> {
+    #[inline]
+    fn default() -> Self {
+        Self(Array::default())
+    }
+}
+
 impl<M: ArrayMemory<u8>> fmt::Debug for CString<M> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_c_str(), f)
+    }
+}
+
+macro_rules! impl_partial_eq {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
+        impl<$($vars)*> PartialEq<$rhs> for $lhs
+        where
+            $($ty: $bound)?
+        {
+            #[inline]
+            fn eq(&self, other: &$rhs) -> bool {
+                PartialEq::eq(&self, &other)
+            }
+        }
+    }
+}
+
+impl_partial_eq! { [M1: ArrayMemory<u8>, M2: ArrayMemory<u8>] CString<M1>, CString<M2> }
+
+impl_partial_eq! { [M: ArrayMemory<u8>] CString<M>, CStr }
+impl_partial_eq! { [M: ArrayMemory<u8>] CString<M>, &CStr }
+impl_partial_eq! { [M: ArrayMemory<u8>] CString<M>, std::ffi::CString }
+
+impl_partial_eq! { [M: ArrayMemory<u8>] CStr, CString<M> }
+impl_partial_eq! { [M: ArrayMemory<u8>] &CStr, CString<M> }
+impl_partial_eq! { [M: ArrayMemory<u8>] std::ffi::CString, CString<M> }
+
+impl<M: ArrayMemory<u8>> Eq for CString<M> {}
+
+impl<M: ArrayMemory<u8>> PartialOrd for CString<M> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        PartialOrd::partial_cmp(self.as_c_str(), other.as_c_str())
+    }
+}
+
+impl<M: ArrayMemory<u8>> Ord for CString<M> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        Ord::cmp(self.as_c_str(), other.as_c_str())
+    }
+}
+
+impl<M: ArrayMemory<u8>> Hash for CString<M> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(self.as_c_str(), state)
     }
 }
 
@@ -98,6 +160,15 @@ impl<const N: usize> FixedCString<N> {
     }
 }
 
+// :TryCloneIn
+impl<const N: usize> Clone for FixedCString<N> {
+    #[inline]
+    fn clone(&self) -> Self {
+        // SAFETY: self is a bunch of u8 and a usize. ok to copy these.
+        unsafe { ptr::read(self) }
+    }
+}
+
 #[expect(type_alias_bounds)]
 pub type SpillableCString<const N: usize, A: Allocator> = CString<SpillableArrayMemory<u8, N, A>>;
 
@@ -124,6 +195,12 @@ mod oom {
         }
     }
 
+    impl<A: Allocator + Clone> Clone for ResizableCString<A> {
+        fn clone(&self) -> Self {
+            Self::from_c_str_in(self.as_c_str(), self.0.memory().allocator().clone())
+        }
+    }
+
     impl<const N: usize> FixedCString<N> {
         // ----
         // construct-from
@@ -136,6 +213,12 @@ mod oom {
         #[inline]
         pub fn from_c_str(s: &CStr) -> Self {
             Self::from_c_str_in(s, FixedArrayMemory::default())
+        }
+    }
+
+    impl<const N: usize, A: Allocator + Clone> Clone for SpillableCString<N, A> {
+        fn clone(&self) -> Self {
+            Self::from_c_str_in(self.as_c_str(), self.0.memory().allocator().clone())
         }
     }
 }
