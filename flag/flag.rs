@@ -186,20 +186,26 @@ fn test_option_is_none() {
 
 #[derive(Debug)]
 pub enum ArgKind<'s> {
+    Str(&'s str),
+    String(String),
     OsStr(&'s OsStr),
     OsString(OsString),
 }
 
 impl<'s> ArgKind<'s> {
-    pub fn as_os_str(&self) -> &OsStr {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::OsStr(os_str) => os_str,
-            Self::OsString(os_string) => os_string.as_os_str(),
+            Self::Str(str) => str.as_bytes(),
+            Self::String(string) => string.as_bytes(),
+            Self::OsStr(os_str) => os_str.as_encoded_bytes(),
+            Self::OsString(os_string) => os_string.as_encoded_bytes(),
         }
     }
 
     pub fn into_cow_str(self) -> Result<Cow<'s, str>, Self> {
         match self {
+            Self::Str(str) => Ok(Cow::Borrowed(str)),
+            Self::String(string) => Ok(Cow::Owned(string)),
             Self::OsStr(os_str) => <&'s str>::try_from(os_str)
                 .map(Cow::Borrowed)
                 .map_err(|_| self),
@@ -284,7 +290,7 @@ where
     };
 
     // NOTE: don't convert into cow str, just yet. maybe we'll need to return it to the caller.
-    let arg_bytes = arg_kind.as_os_str().as_encoded_bytes();
+    let arg_bytes = arg_kind.as_bytes();
     if !arg_bytes.starts_with(b"-") {
         // NOTE: non-flag arg, terminate.
         return Ok(ControlFlow::Break(Some(ParseBreak::NonFlag(arg_kind))));
