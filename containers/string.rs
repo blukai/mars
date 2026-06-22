@@ -328,7 +328,7 @@ impl<M: ArrayMemory<u8>> String<M> {
 
     #[inline]
     pub fn try_from_str_in<I: Into<M>>(s: &str, mem: I) -> Result<Self, AllocError> {
-        let mut arr = Array::new_in(mem.into());
+        let mut arr = Array::new_in(mem);
         arr.try_reserve_exact(s.len())?;
         arr.try_extend_from_slice_copy(s.as_bytes())?;
         Ok(Self(arr))
@@ -351,7 +351,7 @@ impl<M: ArrayMemory<u8>> String<M> {
             f.written()
         };
 
-        let mut arr = Array::new_in(mem.into());
+        let mut arr = Array::new_in(mem);
         arr.try_reserve_exact(size).map_err(FromFmtError::Alloc)?;
         {
             let mut f = unsafe { Formatter::from_raw_parts(arr.as_mut_ptr(), size) };
