@@ -1,4 +1,4 @@
-use core::slice;
+use core::{fmt, slice};
 
 use alloc::{AllocError, Allocator};
 
@@ -117,6 +117,22 @@ impl<M: ArrayMemory<usize> + Default> Default for BitArray<M> {
     #[inline]
     fn default() -> Self {
         Self::new_in(M::default())
+    }
+}
+
+impl<M: ArrayMemory<usize>> fmt::Debug for BitArray<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        let mut first = true;
+        for value in self.iter() {
+            if !first {
+                f.write_str(", ")?
+            }
+            f.write_fmt(format_args!("{}", value as u8))?;
+            first = false;
+        }
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
