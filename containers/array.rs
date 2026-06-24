@@ -15,6 +15,7 @@ use crate::boxed::Box;
 pub unsafe trait ArrayMemory<T> {
     fn as_ptr(&self) -> *mut T;
     fn cap(&self) -> usize;
+    /// `new_cap` must be greater then the current capacity.
     unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError>;
     // TODO: Memory will also need srink method.
 }

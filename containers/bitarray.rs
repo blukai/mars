@@ -1,46 +1,63 @@
-use std::mem::MaybeUninit;
+use core::slice;
 
-use alloc::Allocator;
+use alloc::{Allocator, this_is_fine};
 
-use crate::array::{
-    Array, ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
-};
+use crate::array::{ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory};
 
 pub const SLOT_BITS: usize = usize::BITS as usize;
 pub const INDEX_MASK: usize = SLOT_BITS - 1;
 pub const INDEX_SHIFT: usize = SLOT_BITS.ilog2() as usize;
 
 pub struct BitArray<M: ArrayMemory<usize>> {
-    slots: Array<usize, M>,
-    len: usize,
+    mem: M,
+    // NOTE: cap in bits.
+    cap: usize,
 }
 
 impl<M: ArrayMemory<usize>> BitArray<M> {
     #[inline]
-    pub fn new_in<I: Into<M>>(initial_bit_count: usize, mem: I) -> Self {
-        let mut slots = Array::new_in(mem);
+    pub fn new_in<I: Into<M>>(initial_bit_cap: usize, mem: I) -> Self {
+        let mut mem = mem.into();
 
-        let slots_len = (initial_bit_count + INDEX_MASK) / SLOT_BITS;
-        slots.reserve_exact(slots_len);
-        let spare = slots.spare_cap_mut();
-        // NOTE: zero-out memory. ArrayMemory thing does not do allocate_zeroed.
-        spare.fill(MaybeUninit::new(0));
-        unsafe { slots.set_len(slots_len) };
+        let initial_slot_cap = (initial_bit_cap + INDEX_MASK) / SLOT_BITS;
+
+        // TODO: don't init memory in new/constructor, instead provide resize method. :Hack
+        debug_assert!(mem.cap() == 0 || mem.cap() == initial_slot_cap);
+        if mem.cap() < initial_slot_cap {
+            let result = unsafe { mem.grow(initial_slot_cap) };
+            this_is_fine(result);
+        }
+
+        let spare = unsafe { slice::from_raw_parts_mut(mem.as_ptr(), initial_slot_cap) };
+        spare.fill(0);
 
         Self {
-            slots,
-            len: initial_bit_count,
+            mem,
+            cap: initial_bit_cap,
         }
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
-        self.len
+    pub fn cap(&self) -> usize {
+        self.cap
+    }
+
+    pub fn count(&self) -> usize {
+        let mut count = 0;
+        for slot in self.slots() {
+            count += slot.count_ones() as usize;
+        }
+        count
     }
 
     #[inline]
-    pub fn slots(&self) -> &[usize] {
-        self.slots.as_slice()
+    fn slots(&self) -> &[usize] {
+        unsafe { slice::from_raw_parts(self.mem.as_ptr(), self.mem.cap()) }
+    }
+
+    #[inline]
+    fn slots_mut(&mut self) -> &mut [usize] {
+        unsafe { slice::from_raw_parts_mut(self.mem.as_ptr(), self.mem.cap()) }
     }
 
     // NOTE: don't bother thinking about implementing ops::Index, you can't overload assignment in
@@ -50,22 +67,26 @@ impl<M: ArrayMemory<usize>> BitArray<M> {
 
     #[inline]
     pub fn get(&self, index: usize) -> bool {
-        debug_assert!(index < self.len);
-        (self.slots[index >> INDEX_SHIFT] & (1 << (index & INDEX_MASK))) != 0
+        debug_assert!(index < self.cap());
+        let slots = self.slots();
+        let slot_index = index >> INDEX_SHIFT;
+        (slots[slot_index] & (1 << (index & INDEX_MASK))) != 0
     }
 
     #[inline]
     pub fn set(&mut self, index: usize, value: bool) {
-        debug_assert!(index < self.len);
+        debug_assert!(index < self.cap());
+        let slots = self.slots_mut();
+        let slot_index = index >> INDEX_SHIFT;
         // NOTE: see https://graphics.stanford.edu/~seander/bithacks.html#ConditionalSetOrClearBitsWithoutBranching
-        let w = &mut self.slots[index >> INDEX_SHIFT];
+        let w = &mut slots[slot_index];
         let m = 1 << (index & INDEX_MASK);
         *w = (*w & !m) | ((value as usize).wrapping_neg() & m);
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.slots.clear()
+        self.slots_mut().fill(0);
     }
 
     #[inline]
@@ -85,11 +106,12 @@ pub struct Iter<'a> {
 impl<'a> Iter<'a> {
     #[inline]
     fn new<M: ArrayMemory<usize>>(bit_array: &'a BitArray<M>) -> Self {
+        let slots = bit_array.slots();
         Self {
-            slots: &bit_array.slots,
-            total_bits_remaining: bit_array.len,
+            slots,
+            total_bits_remaining: bit_array.cap(),
             slot_index: 0,
-            value: bit_array.slots[0],
+            value: slots[0],
             bit: 0,
         }
     }
@@ -214,5 +236,14 @@ mod tests {
             bit_array.set(120, true);
             all_bits_are_unset_but_one(&bit_array, 120);
         }
+    }
+
+    #[test]
+    fn test_count() {
+        let mut bit_array = make_fixed_bit_array!(10);
+        assert!(bit_array.count() == 0);
+        bit_array.set(2, true);
+        bit_array.set(8, true);
+        assert!(bit_array.count() == 2);
     }
 }

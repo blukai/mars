@@ -627,7 +627,8 @@ mod oom {
 
 // ----
 
-// TODO: do the same stupid workaround as in bitarray.
+// NOTE: i was thinking that i can do the same stupid workaround as in bitarray with macro. but no!
+// rust is not happy because there's already a format thing in global scope.
 #[macro_export]
 macro_rules! format {
     (try in $alloc:expr, $($arg:tt)*) => {
