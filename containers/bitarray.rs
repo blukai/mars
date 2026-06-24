@@ -1,8 +1,10 @@
 use core::slice;
 
-use alloc::{Allocator, this_is_fine};
+use alloc::{AllocError, Allocator};
 
-use crate::array::{ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory};
+use crate::array::{
+    ArrayMemory, FixedArrayMemory, GrowthMode, ResizableArrayMemory, SpillableArrayMemory, grow_cap,
+};
 
 pub const SLOT_BITS: usize = usize::BITS as usize;
 pub const INDEX_MASK: usize = SLOT_BITS - 1;
@@ -11,29 +13,16 @@ pub const INDEX_SHIFT: usize = SLOT_BITS.ilog2() as usize;
 pub struct BitArray<M: ArrayMemory<usize>> {
     mem: M,
     // NOTE: cap in bits.
+    //   when converted to cap in slots be different then mem's cap.
     cap: usize,
 }
 
 impl<M: ArrayMemory<usize>> BitArray<M> {
     #[inline]
-    pub fn new_in<I: Into<M>>(initial_bit_cap: usize, mem: I) -> Self {
-        let mut mem = mem.into();
-
-        let initial_slot_cap = (initial_bit_cap + INDEX_MASK) / SLOT_BITS;
-
-        // TODO: don't init memory in new/constructor, instead provide resize method. :Hack
-        debug_assert!(mem.cap() == 0 || mem.cap() == initial_slot_cap);
-        if mem.cap() < initial_slot_cap {
-            let result = unsafe { mem.grow(initial_slot_cap) };
-            this_is_fine(result);
-        }
-
-        let spare = unsafe { slice::from_raw_parts_mut(mem.as_ptr(), initial_slot_cap) };
-        spare.fill(0);
-
+    pub fn new_in<I: Into<M>>(mem: I) -> Self {
         Self {
-            mem,
-            cap: initial_bit_cap,
+            mem: mem.into(),
+            cap: 0,
         }
     }
 
@@ -52,12 +41,41 @@ impl<M: ArrayMemory<usize>> BitArray<M> {
 
     #[inline]
     fn slots(&self) -> &[usize] {
-        unsafe { slice::from_raw_parts(self.mem.as_ptr(), self.mem.cap()) }
+        let len = (self.cap + INDEX_MASK) / SLOT_BITS;
+        unsafe { slice::from_raw_parts(self.mem.as_ptr(), len) }
     }
 
     #[inline]
     fn slots_mut(&mut self) -> &mut [usize] {
-        unsafe { slice::from_raw_parts_mut(self.mem.as_ptr(), self.mem.cap()) }
+        let len = (self.cap + INDEX_MASK) / SLOT_BITS;
+        unsafe { slice::from_raw_parts_mut(self.mem.as_ptr(), len) }
+    }
+
+    fn try_grow_to(&mut self, new_cap: usize) -> Result<(), AllocError> {
+        let old_cap_in_bits = self.cap;
+        let new_cap_in_bits = new_cap;
+
+        let old_cap = (old_cap_in_bits + INDEX_MASK) / SLOT_BITS;
+        let new_cap = (new_cap_in_bits + INDEX_MASK) / SLOT_BITS;
+
+        let cap = self.mem.cap();
+        let len = cap;
+        let additional = new_cap - cap;
+
+        if let Some(new_cap) =
+            grow_cap(cap, len, additional, size_of::<usize>(), GrowthMode::Exact)?
+        {
+            // SAFETY: grow_cap returns Some(new_cap) if new cap is greater then old.
+            unsafe {
+                self.mem.grow(new_cap)?;
+            }
+        };
+
+        self.cap = new_cap_in_bits;
+        // NOTE: we did actually grow, need to zero-out new slots.
+        self.slots_mut()[old_cap..].fill(0);
+
+        Ok(())
     }
 
     // NOTE: don't bother thinking about implementing ops::Index, you can't overload assignment in
@@ -92,6 +110,13 @@ impl<M: ArrayMemory<usize>> BitArray<M> {
     #[inline]
     pub fn iter(&self) -> Iter<'_> {
         Iter::new(self)
+    }
+}
+
+impl<M: ArrayMemory<usize> + Default> Default for BitArray<M> {
+    #[inline]
+    fn default() -> Self {
+        Self::new_in(M::default())
     }
 }
 
@@ -168,39 +193,36 @@ pub type SpillableBitArray<const N: usize, A: Allocator> =
 
 #[macro_export]
 macro_rules! __FixedBitArray {
-    ($len:expr) => {
-        FixedBitArray<{ ($len + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS }>
+    ($bits:expr) => {
+        FixedBitArray<{ ($bits + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS }>
     };
 }
 
 #[macro_export]
 macro_rules! __SpillableBitArray {
-    ($len:expr, $alloc:ty) => {
-        SpillableBitArray<{ ($len + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS }, $alloc>
-    };
-}
-
-#[macro_export]
-macro_rules! __make_fixed_bit_array {
-    ($len:expr) => {
-        <$crate::bitarray::FixedBitArray!($len)>::new_in(
-            $len,
-            $crate::array::FixedArrayMemory::default(),
-        )
-    };
-}
-
-#[macro_export]
-macro_rules! __make_spillable_bit_array_in {
-    ($len:expr, $alloc:expr) => {
-        <$crate::bitarray::SpillableBitArray!($len, _)>::new_in($len, $alloc)
+    ($bits:expr, $alloc:ty) => {
+        SpillableBitArray<{ ($bits + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS }, $alloc>
     };
 }
 
 pub use __FixedBitArray as FixedBitArray;
 pub use __SpillableBitArray as SpillableBitArray;
-pub use __make_fixed_bit_array as make_fixed_bit_array;
-pub use __make_spillable_bit_array_in as make_spillable_bit_array_in;
+
+// ----
+
+#[cfg(not(no_global_oom_handling))]
+mod oom {
+    use alloc::this_is_fine;
+
+    use super::*;
+
+    impl<M: ArrayMemory<usize>> BitArray<M> {
+        #[inline]
+        pub fn grow_to(&mut self, new_cap: usize) {
+            this_is_fine(self.try_grow_to(new_cap))
+        }
+    }
+}
 
 // ----
 
@@ -210,40 +232,48 @@ mod tests {
 
     #[test]
     fn test_bit_array() {
-        fn all_bits_are_unset_but_one<M: ArrayMemory<usize>>(
-            bit_array: &BitArray<M>,
-            one_index: usize,
+        fn check<M: ArrayMemory<usize>>(
+            bit_array: &mut BitArray<M>,
+            cap_to_grow: usize,
+            bit_to_set: usize,
         ) {
+            bit_array.try_grow_to(cap_to_grow).unwrap();
+            bit_array.set(bit_to_set, true);
+
             for (i, value) in bit_array.iter().enumerate() {
-                assert!(value == (i == one_index));
+                assert!(value == (i == bit_to_set));
             }
         }
 
-        {
-            let mut bit_array = ResizableBitArray::new_in(10, alloc::Global);
-            bit_array.set(5, true);
-            all_bits_are_unset_but_one(&bit_array, 5);
-        }
-
-        {
-            let mut bit_array = make_fixed_bit_array!(1000);
-            bit_array.set(900, true);
-            all_bits_are_unset_but_one(&bit_array, 900);
-        }
-
-        {
-            let mut bit_array = make_spillable_bit_array_in!(255, alloc::Global);
-            bit_array.set(120, true);
-            all_bits_are_unset_but_one(&bit_array, 120);
-        }
+        check(&mut ResizableBitArray::new_in(alloc::Global), 10, 5);
+        check(&mut <FixedBitArray!(1000)>::default(), 1000, 900);
+        check(
+            &mut <SpillableBitArray!(255, _)>::new_in(alloc::Global),
+            255,
+            120,
+        );
     }
 
     #[test]
     fn test_count() {
-        let mut bit_array = make_fixed_bit_array!(10);
+        let mut bit_array = <FixedBitArray!(10)>::default();
+        bit_array.try_grow_to(10).unwrap();
         assert!(bit_array.count() == 0);
         bit_array.set(2, true);
         bit_array.set(8, true);
         assert!(bit_array.count() == 2);
+    }
+
+    #[test]
+    fn test_reserve() {
+        fn check<M: ArrayMemory<usize>>(bit_array: &mut BitArray<M>) {
+            assert!(bit_array.cap() == 0);
+            bit_array.try_grow_to(65).unwrap();
+            assert!(bit_array.cap() == 65);
+        }
+
+        check(&mut ResizableBitArray::new_in(alloc::Global));
+        check(&mut <FixedBitArray!(65)>::default());
+        check(&mut <SpillableBitArray!(65, alloc::Global)>::default());
     }
 }
