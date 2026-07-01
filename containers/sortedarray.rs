@@ -285,6 +285,7 @@ mod oom {
 
     impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
         #[track_caller]
+        #[inline]
         pub fn insert(&mut self, key: K, value: V) -> Option<V> {
             match self.try_insert(key, value) {
                 Ok(maybe_existing) => maybe_existing,
@@ -302,6 +303,7 @@ mod oom {
         // ----
         // extend from
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
@@ -326,6 +328,7 @@ mod oom {
 
     impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         #[track_caller]
+        #[inline]
         pub fn insert(&mut self, value: T) {
             match self.try_insert(value) {
                 Ok(..) => {}
@@ -343,6 +346,7 @@ mod oom {
         // ----
         // extend from
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))

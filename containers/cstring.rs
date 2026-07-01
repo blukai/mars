@@ -184,11 +184,13 @@ mod oom {
         // ----
         // construct-from
 
+        #[track_caller]
         #[inline]
         pub fn from_str_in<I: Into<M>>(s: &str, mem: I) -> Self {
             this_is_fine(Self::try_from_str_in(s, mem))
         }
 
+        #[track_caller]
         #[inline]
         pub fn from_c_str_in<I: Into<M>>(s: &CStr, mem: I) -> Self {
             this_is_fine(Self::try_from_c_str_in(s, mem))

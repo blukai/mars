@@ -152,10 +152,13 @@ mod oom {
     use super::*;
 
     impl<T, A: Allocator> Box<T, A> {
+        #[track_caller]
+        #[inline]
         pub fn new_uninit_in(alloc: A) -> Box<MaybeUninit<T>, A> {
             this_is_fine(Self::try_new_uninit_in(alloc))
         }
 
+        #[track_caller]
         #[inline]
         pub fn new_in(value: T, alloc: A) -> Self {
             this_is_fine(Self::try_new_in(value, alloc))
@@ -163,6 +166,8 @@ mod oom {
     }
 
     impl<T, A: Allocator> Box<[T], A> {
+        #[track_caller]
+        #[inline]
         pub fn new_uninit_in(len: usize, alloc: A) -> Box<[MaybeUninit<T>], A> {
             this_is_fine(Self::try_new_uninit_in(len, alloc))
         }

@@ -980,11 +980,13 @@ mod oom {
     use super::*;
 
     impl<T, M: ArrayMemory<T>> Array<T, M> {
+        #[track_caller]
         #[inline]
         pub fn reserve_exact(&mut self, additional: usize) {
             this_is_fine(self.try_reserve_exact(additional))
         }
 
+        #[track_caller]
         #[inline]
         pub fn reserve_amortized(&mut self, additional: usize) {
             this_is_fine(self.try_reserve_amortized(additional))
@@ -1021,11 +1023,13 @@ mod oom {
         // ----
         // extend from
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
         }
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_slice_copy(&mut self, other: &[T])
         where
@@ -1034,6 +1038,7 @@ mod oom {
             this_is_fine(self.try_extend_from_slice_copy(other))
         }
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_array<const C: usize>(&mut self, array: [T; C]) {
             this_is_fine(self.try_extend_from_array(array))
@@ -1042,6 +1047,8 @@ mod oom {
 
     // :TryCloneIn
     impl<T: Clone, A: Allocator + Clone> Clone for ResizableArray<T, A> {
+        #[track_caller]
+        #[inline]
         fn clone(&self) -> Self {
             let mut ret = Self::new_in(self.mem.allocator().clone());
             this_is_fine(try_array_clone_slow(self, &mut ret));
@@ -1051,6 +1058,8 @@ mod oom {
 
     // :TryCloneIn
     impl<T: Clone, const N: usize, A: Allocator + Clone> Clone for SpillableArray<T, N, A> {
+        #[track_caller]
+        #[inline]
         fn clone(&self) -> Self {
             let mut ret = Self::new_in(self.mem.allocator().clone());
             this_is_fine(try_array_clone_slow(self, &mut ret));

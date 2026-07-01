@@ -383,11 +383,13 @@ mod oom {
     use super::*;
 
     impl<T> UnmanagedArray<T> {
+        #[track_caller]
         #[inline]
         pub fn reserve_exact(&mut self, alloc: impl Allocator, additional: usize) {
             this_is_fine(self.try_reserve_exact(alloc, additional))
         }
 
+        #[track_caller]
         #[inline]
         pub fn reserve_amortized(&mut self, alloc: impl Allocator, additional: usize) {
             this_is_fine(self.try_reserve_amortized(alloc, additional))
@@ -424,11 +426,13 @@ mod oom {
         // ----
         // extend from
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = T>>(&mut self, alloc: impl Allocator, iter: I) {
             this_is_fine(self.try_extend_from_iter(alloc, iter))
         }
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_slice_copy(&mut self, alloc: impl Allocator, other: &[T])
         where
@@ -437,6 +441,7 @@ mod oom {
             this_is_fine(self.try_extend_from_slice_copy(alloc, other))
         }
 
+        #[track_caller]
         #[inline]
         pub fn extend_from_array<const C: usize>(&mut self, alloc: impl Allocator, array: [T; C]) {
             this_is_fine(self.try_extend_from_array(alloc, array))

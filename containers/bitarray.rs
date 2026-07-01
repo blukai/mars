@@ -233,6 +233,7 @@ mod oom {
     use super::*;
 
     impl<M: ArrayMemory<usize>> BitArray<M> {
+        #[track_caller]
         #[inline]
         pub fn grow_to(&mut self, new_cap: usize) {
             this_is_fine(self.try_grow_to(new_cap))

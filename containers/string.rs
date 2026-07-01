@@ -558,21 +558,25 @@ mod oom {
     use super::*;
 
     impl<M: ArrayMemory<u8>> String<M> {
+        #[track_caller]
         #[inline]
         pub fn reserve_exact(&mut self, additional: usize) {
             this_is_fine(self.try_reserve_exact(additional))
         }
 
+        #[track_caller]
         #[inline]
         pub fn reserve_amortized(&mut self, additional: usize) {
             this_is_fine(self.try_reserve_amortized(additional))
         }
 
+        #[track_caller]
         #[inline]
         pub fn push_str(&mut self, s: &str) {
             this_is_fine(self.try_push_str(s))
         }
 
+        #[track_caller]
         #[inline]
         pub fn push_char(&mut self, c: char) {
             this_is_fine(self.try_push_char(c))
@@ -581,6 +585,7 @@ mod oom {
         // ----
         // construct-from
 
+        #[track_caller]
         #[inline]
         pub fn from_str_in<I: Into<M>>(s: &str, mem: I) -> Self {
             this_is_fine(Self::try_from_str_in(s, mem))
