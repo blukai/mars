@@ -357,16 +357,14 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     where
         F: FnMut(&T) -> bool,
     {
-        let mut retained_count = 0;
-        let mut next_index = 0;
-        while let Some(it) = self.get(next_index) {
-            if f(it) {
-                self.swap(retained_count, next_index);
-                retained_count += 1;
+        let mut write = 0;
+        for read in 0..self.len() {
+            if f(&self[read]) {
+                self.swap(write, read);
+                write += 1;
             }
-            next_index += 1;
         }
-        self.truncate(retained_count);
+        self.truncate(write);
     }
 
     // TODO: might want to introduce push-like variants of insert
