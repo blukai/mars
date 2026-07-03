@@ -42,13 +42,13 @@ impl<M: ArrayMemory<usize>> BitArray<M> {
     #[inline]
     fn slots(&self) -> &[usize] {
         let len = (self.cap + INDEX_MASK) / SLOT_BITS;
-        unsafe { slice::from_raw_parts(self.mem.as_ptr(), len) }
+        unsafe { slice::from_raw_parts(self.mem.ptr(), len) }
     }
 
     #[inline]
     fn slots_mut(&mut self) -> &mut [usize] {
         let len = (self.cap + INDEX_MASK) / SLOT_BITS;
-        unsafe { slice::from_raw_parts_mut(self.mem.as_ptr(), len) }
+        unsafe { slice::from_raw_parts_mut(self.mem.ptr(), len) }
     }
 
     fn try_grow_to(&mut self, new_cap: usize) -> Result<(), AllocError> {

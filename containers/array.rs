@@ -13,7 +13,7 @@ use dropguard::DropGuard;
 use crate::boxed::Box;
 
 pub unsafe trait ArrayMemory<T> {
-    fn as_ptr(&self) -> *mut T;
+    fn ptr(&self) -> *mut T;
     fn cap(&self) -> usize;
     /// `new_cap` must be greater then the current capacity.
     unsafe fn grow(&mut self, new_cap: usize) -> Result<(), AllocError>;
@@ -203,12 +203,12 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
 
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.mem.as_ptr(), self.len()) }
+        unsafe { slice::from_raw_parts(self.mem.ptr(), self.len()) }
     }
 
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.mem.as_ptr(), self.len()) }
+        unsafe { slice::from_raw_parts_mut(self.mem.ptr(), self.len()) }
     }
 
     #[inline]
@@ -705,7 +705,7 @@ impl<T, A: Allocator> ResizableArrayMemory<T, A> {
 
 unsafe impl<T, A: Allocator> ArrayMemory<T> for ResizableArrayMemory<T, A> {
     #[inline]
-    fn as_ptr(&self) -> *mut T {
+    fn ptr(&self) -> *mut T {
         self.ptr.as_ptr()
     }
 
@@ -822,7 +822,7 @@ pub struct FixedArrayMemory<T, const N: usize> {
 
 unsafe impl<T, const N: usize> ArrayMemory<T> for FixedArrayMemory<T, N> {
     #[inline]
-    fn as_ptr(&self) -> *mut T {
+    fn ptr(&self) -> *mut T {
         self.data.as_ptr() as *mut T
     }
 
@@ -906,10 +906,10 @@ impl<T, const N: usize, A: Allocator> SpillableArrayMemory<T, N, A> {
 
 unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMemory<T, N, A> {
     #[inline]
-    fn as_ptr(&self) -> *mut T {
+    fn ptr(&self) -> *mut T {
         match self {
-            Self::Fixed((fixed, _)) => ArrayMemory::as_ptr(fixed),
-            Self::Resizable(resizable) => ArrayMemory::as_ptr(resizable),
+            Self::Fixed((fixed, _)) => ArrayMemory::ptr(fixed),
+            Self::Resizable(resizable) => ArrayMemory::ptr(resizable),
             Self::Transitional => unreachable!(),
         }
     }
@@ -936,7 +936,7 @@ unsafe impl<T, const N: usize, A: Allocator> ArrayMemory<T> for SpillableArrayMe
                 unsafe {
                     resizable.grow(new_cap)?;
                     resizable
-                        .as_ptr()
+                        .ptr()
                         .copy_from_nonoverlapping(fixed.data.as_ptr().cast(), N)
                 };
                 *self = Self::Resizable(resizable);
