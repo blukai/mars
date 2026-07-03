@@ -69,7 +69,7 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
         iter: I,
     ) -> Result<(), AllocError> {
         self.0.try_extend_from_iter(iter)?;
-        self.0.sort_by(|(a, _), (b, _)| a.compare(b));
+        self.0.sort_unstable_by(|(a, _), (b, _)| a.compare(b));
         Ok(())
     }
 
@@ -199,7 +199,7 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         iter: I,
     ) -> Result<(), AllocError> {
         self.0.try_extend_from_iter(iter)?;
-        self.0.sort_by(|a, b| a.compare(b));
+        self.0.sort_unstable_by(|a, b| a.compare(b));
         Ok(())
     }
 

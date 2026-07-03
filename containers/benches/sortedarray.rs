@@ -32,9 +32,9 @@ fn bench_sortedarraymap(c: &mut Criterion) {
     });
     g.bench_function("get number", |b| {
         let mut thing = ResizableSortedArrayMap::new_in(alloc::Global);
-        iter::repeat_n((), N)
-            .enumerate()
-            .for_each(|(i, _)| thing.insert(i, ()));
+        iter::repeat_n((), N).enumerate().for_each(|(i, _)| {
+            thing.insert(i, ());
+        });
         b.iter(|| {
             for (i, _) in black_box(iter::repeat_n((), N)).enumerate() {
                 black_box(_ = thing.get(&i));
@@ -52,9 +52,9 @@ fn bench_sortedarraymap(c: &mut Criterion) {
     });
     g.bench_function("get string", |b| {
         let mut thing = ResizableSortedArrayMap::new_in(alloc::Global);
-        iter::repeat_n((), N)
-            .enumerate()
-            .for_each(|(i, _)| thing.insert(lipsum[i], ()));
+        iter::repeat_n((), N).enumerate().for_each(|(i, _)| {
+            thing.insert(lipsum[i], ());
+        });
         b.iter(|| {
             for (i, _) in black_box(iter::repeat_n((), N)).enumerate() {
                 black_box(_ = thing.get(&lipsum[i]));
