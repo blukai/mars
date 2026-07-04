@@ -8,6 +8,8 @@ use dropguard::DropGuard;
 
 use crate::{AllocError, Allocator, align_up};
 
+// MAYBE: consider renaming (and maybe more generalizing?) this from Temp into maybe Spillable?
+
 // NOTE: this is a copy of Jonathan Blow's Temporary_Stroage thing from
 // https://www.youtube.com/watch?v=SSVHWrYG974.
 //
