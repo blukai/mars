@@ -815,7 +815,14 @@ impl<T, A: Allocator> ResizableArray<T, A> {
 
 #[repr(transparent)]
 pub struct FixedArrayMemory<T, const N: usize> {
-    data: MaybeUninit<[T; N]>,
+    data: [MaybeUninit<T>; N],
+}
+
+impl<T, const N: usize> FixedArrayMemory<T, N> {
+    #[inline]
+    pub fn from_uninit_array(data: [MaybeUninit<T>; N]) -> Self {
+        Self { data }
+    }
 }
 
 unsafe impl<T, const N: usize> ArrayMemory<T> for FixedArrayMemory<T, N> {
@@ -850,6 +857,17 @@ const _: () = {
     // NOTE: max len of string + length
     assert!(size_of::<FixedArray<u8, 16>>() == 16 + size_of::<usize>());
 };
+
+impl<T, const N: usize> FixedArray<T, N> {
+    #[inline]
+    pub fn from_partially_uninit_array(data: [MaybeUninit<T>; N], len: usize) -> Self {
+        Self {
+            mem: FixedArrayMemory::from_uninit_array(data),
+            len,
+            _ty: PhantomData,
+        }
+    }
+}
 
 impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
     fn clone(&self) -> Self {
