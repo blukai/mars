@@ -1,5 +1,5 @@
 use core::alloc::Layout;
-use core::mem::MaybeUninit;
+use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
 use core::{borrow, fmt, ops, slice};
 
@@ -320,6 +320,10 @@ impl<T> UnmanagedArray<T> {
 
     // ----
     // NOTE: below are UnmanagedArray-specific functions
+
+    pub fn leak<'a>(mut self) -> &'a mut [T] {
+        unsafe { mem::transmute(self.as_mut_slice()) }
+    }
 
     pub fn deinit(&mut self, alloc: impl Allocator) {
         self.clear();
