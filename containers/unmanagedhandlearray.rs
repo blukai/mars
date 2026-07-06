@@ -1,17 +1,17 @@
 use core::any::{TypeId, type_name};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
-use core::{fmt, mem};
+use core::{fmt, mem, ops};
 
 use alloc::Allocator;
 
-use crate::array::{PushError, ResizableArray};
+use crate::array::PushError;
+use crate::unmanagedexponentialarray::UnmanagedExponentialArray;
 
 const DANGLING_GENERATION: u32 = 0;
 const FIRST_GENERATION: u32 = 1;
 
-/// Type-erased handle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ErasedHandle {
     pub index: u32,
     pub generation: u32,
@@ -64,7 +64,7 @@ impl ErasedHandle {
 // `AnyHandle` stores `TypeId` which implements `Hash`, `PartialOrd`, and `Ord`, it is worth noting
 // that the hashes and ordering will vary between Rust releases. Beware of relying on them inside
 // of your code!
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AnyHandle {
     pub index: u32,
     pub generation: u32,
@@ -226,7 +226,7 @@ impl<T> Handle<T> {
 
     /// SAFETY: it's on you to know where the erased handle came from.
     #[inline]
-    pub unsafe fn from_erased(erased_handle: ErasedHandle) -> Self {
+    pub fn from_erased(erased_handle: ErasedHandle) -> Self {
         Handle {
             index: erased_handle.index,
             generation: erased_handle.generation,
@@ -274,7 +274,7 @@ struct Entry<T> {
     generation: u32,
 }
 
-// TODO: rename Ticket to Token or something like that.
+// MAYBE: rename Ticket to Token or something like that.
 //
 /// A reference to a reserved entry in a [`HandleArray`].
 pub struct Ticket<T> {
@@ -298,23 +298,11 @@ impl<T> Ticket<T> {
     }
 }
 
-// NOTE: handle array by its nature is unordered. it's an obvious aspect of it.
-//   where's sortedarray has the word "sorted" in its name i don't believe name of this thing must
-//   include word unordered.
+// NOTE: i always stuble upon shit https://github.com/rust-lang/rust/issues/50676
+type Entries<T> = UnmanagedExponentialArray!(Entry<T>, 4);
 
-/// An encapsulated dynamic array that allows to refer to entries by [`Handle`].
-///
-/// Methods with the `try_` prefix return `Option`, allowing for graceful error handling. These
-/// methods are suitable when failures are expected and should be handled without crashing the
-/// program.
-///
-/// Methods without the `try_` prefix can panic. They assume valid input and are intended for cases
-/// where failure is considered a logic error or a violation of preconditions, which should never
-/// occur under normal circumstances.
-///
-/// This is an attempt to align with Rust's philosophy of making failure explicit and providing a
-/// way to handle errors in a controlled manner, while also allowing for performance optimizations
-/// and simpler code paths when failures are truly unexpected.
+/// An encapsulated exponential array that allows to refer to items by [`Handle`].
+/// Items are never moved once allocated.
 ///
 /// ## reading:
 ///
@@ -328,31 +316,23 @@ impl<T> Ticket<T> {
 /// - <https://github.com/fitzgen/generational-arena>
 /// - <https://docs.rs/fyrox/latest/fyrox/core/pool/struct.Pool.html>
 #[derive(Debug)]
-pub struct HandleArray<T, A: Allocator> {
-    // NOTE: i don't see any reason for making it possible to use other flavors of Array here.
-    entries: ResizableArray<Entry<T>, A>,
+pub struct UnmanagedHandleArray<T> {
+    entries: Entries<T>,
+    // MAYBE: it might be cheaper to store a free list.
     free_head: Option<u32>,
 }
 
 // :BlindDerive
-impl<T, A: Allocator + Default> Default for HandleArray<T, A> {
+impl<T> Default for UnmanagedHandleArray<T> {
     fn default() -> Self {
         Self {
-            entries: ResizableArray::new_in(A::default()),
+            entries: Entries::default(),
             free_head: None,
         }
     }
 }
 
-impl<T, A: Allocator> HandleArray<T, A> {
-    #[inline]
-    pub fn new_in(alloc: A) -> Self {
-        Self {
-            entries: ResizableArray::new_in(alloc),
-            free_head: None,
-        }
-    }
-
+impl<T> UnmanagedHandleArray<T> {
     #[inline]
     pub fn len(&self) -> u32 {
         u32::try_from(self.entries.len()).unwrap_or_else(|_| panic!("entries.len() overflored u32"))
@@ -361,7 +341,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
     // ----
 
     #[inline]
-    fn try_get_entry_by_handle(&self, handle: Handle<T>) -> Option<&Entry<T>> {
+    fn get_entry_by_handle(&self, handle: Handle<T>) -> Option<&Entry<T>> {
         let entry = self.entries.get(handle.index as usize)?;
         if entry.generation != handle.generation {
             return None;
@@ -369,18 +349,8 @@ impl<T, A: Allocator> HandleArray<T, A> {
         Some(entry)
     }
 
-    #[allow(dead_code, reason = "i want to keep this for symmetry")]
     #[inline]
-    fn get_entry_by_handle(&self, handle: Handle<T>) -> &Entry<T> {
-        let entry = &self.entries[handle.index as usize];
-        if entry.generation != handle.generation {
-            panic!("danglign handle: {handle:?}");
-        }
-        entry
-    }
-
-    #[inline]
-    fn try_get_entry_by_handle_mut(&mut self, handle: Handle<T>) -> Option<&mut Entry<T>> {
+    fn get_entry_by_handle_mut(&mut self, handle: Handle<T>) -> Option<&mut Entry<T>> {
         let entry = self.entries.get_mut(handle.index as usize)?;
         if entry.generation != handle.generation {
             return None;
@@ -388,19 +358,10 @@ impl<T, A: Allocator> HandleArray<T, A> {
         Some(entry)
     }
 
-    #[inline]
-    fn get_entry_by_handle_mut(&mut self, handle: Handle<T>) -> &mut Entry<T> {
-        let entry = &mut self.entries[handle.index as usize];
-        if entry.generation != handle.generation {
-            panic!("danglign handle: {handle:?}");
-        }
-        entry
-    }
-
     // ----
 
-    pub fn try_get(&self, handle: Handle<T>) -> Option<&T> {
-        match self.try_get_entry_by_handle(handle) {
+    pub fn get(&self, handle: Handle<T>) -> Option<&T> {
+        match self.get_entry_by_handle(handle) {
             Some(Entry {
                 kind: EntryKind::Occupied(value),
                 ..
@@ -409,29 +370,13 @@ impl<T, A: Allocator> HandleArray<T, A> {
         }
     }
 
-    pub fn get(&self, handle: Handle<T>) -> &T {
-        match self.get_entry_by_handle(handle).kind {
-            EntryKind::Occupied(ref value) => value,
-            EntryKind::Vacant { .. } => panic!("dangling handle: {handle:?}"),
-            EntryKind::Reserved => panic!("reserved handle: {handle:?}"),
-        }
-    }
-
-    pub fn try_get_mut(&mut self, handle: Handle<T>) -> Option<&mut T> {
-        match self.try_get_entry_by_handle_mut(handle) {
+    pub fn get_mut(&mut self, handle: Handle<T>) -> Option<&mut T> {
+        match self.get_entry_by_handle_mut(handle) {
             Some(Entry {
                 kind: EntryKind::Occupied(value),
                 ..
             }) => Some(value),
             _ => None,
-        }
-    }
-
-    pub fn get_mut(&mut self, handle: Handle<T>) -> &mut T {
-        match self.get_entry_by_handle_mut(handle).kind {
-            EntryKind::Occupied(ref mut value) => value,
-            EntryKind::Vacant { .. } => panic!("dangling handle: {handle:?}"),
-            EntryKind::Reserved => panic!("reserved handle: {handle:?}"),
         }
     }
 
@@ -441,6 +386,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
     /// function has finished executing.
     pub fn try_push_with(
         &mut self,
+        alloc: impl Allocator,
         f: impl FnOnce(Handle<T>) -> T,
     ) -> Result<Handle<T>, PushError<T>> {
         // NOTE: loop to find a valid (not overflowed) free index
@@ -467,10 +413,13 @@ impl<T, A: Allocator> HandleArray<T, A> {
         }
 
         let handle = Handle::new(self.entries.len() as u32, FIRST_GENERATION);
-        match self.entries.try_push(Entry {
-            kind: EntryKind::Occupied(f(handle)),
-            generation: handle.generation,
-        }) {
+        match self.entries.try_push(
+            alloc,
+            Entry {
+                kind: EntryKind::Occupied(f(handle)),
+                generation: handle.generation,
+            },
+        ) {
             Ok(..) => Ok(handle),
             Err(PushError {
                 kind,
@@ -485,22 +434,22 @@ impl<T, A: Allocator> HandleArray<T, A> {
     }
 
     #[inline]
-    pub fn try_push(&mut self, value: T) -> Result<Handle<T>, PushError<T>> {
-        self.try_push_with(|_| value)
+    pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<Handle<T>, PushError<T>> {
+        self.try_push_with(alloc, |_| value)
     }
 
-    // TODO: non-panicking try_remove
-
-    pub fn remove(&mut self, handle: Handle<T>) -> T {
+    pub fn remove(&mut self, handle: Handle<T>) -> Option<T> {
         let next_free = self.free_head;
-        let entry = self.get_entry_by_handle_mut(handle);
+        let Some(entry) = self.get_entry_by_handle_mut(handle) else {
+            return None;
+        };
         let EntryKind::Occupied(value) =
             mem::replace(&mut entry.kind, EntryKind::Vacant { next_free })
         else {
             panic!("attempt to remove value of non occupied entry at handle {handle:?}")
         };
         self.free_head = Some(handle.index);
-        value
+        Some(value)
     }
 
     /// Tries to take ownership of the value at the given handle.
@@ -515,21 +464,11 @@ impl<T, A: Allocator> HandleArray<T, A> {
     ///
     /// [`put_back`]: Self::put_back
     pub fn try_take(&mut self, handle: Handle<T>) -> Option<(Ticket<T>, T)> {
-        let entry = self.try_get_entry_by_handle_mut(handle)?;
+        let entry = self.get_entry_by_handle_mut(handle)?;
         let EntryKind::Occupied(value) = mem::replace(&mut entry.kind, EntryKind::Reserved) else {
             return None;
         };
         Some((Ticket::new(handle.index), value))
-    }
-
-    /// Same as [`try_take`], but panics if handle is invalid.
-    ///
-    /// [`try_take`]: Self::try_take
-    #[inline]
-    pub fn take(&mut self, handle: Handle<T>) -> (Ticket<T>, T) {
-        // TODO: consider being more granular with panic messages.
-        self.try_take(handle)
-            .unwrap_or_else(|| panic!("could not take value at handle {:?}", handle))
     }
 
     /// Puts back the value into the entry associated with the given [`Ticket`] that was previously
@@ -540,7 +479,7 @@ impl<T, A: Allocator> HandleArray<T, A> {
     pub fn put_back(&mut self, ticket: Ticket<T>, value: T) {
         let entry = &mut self.entries[ticket.index as usize];
         entry.kind = EntryKind::Occupied(value);
-        // NOTE: forget is called to not invoke manually implemented panicking drop.
+        // NOTE: forget is called to not invoke manually implemented pinvalidanicking drop.
         mem::forget(ticket);
     }
 
@@ -568,28 +507,43 @@ impl<T, A: Allocator> HandleArray<T, A> {
             })
     }
 
-    pub fn iter_values(&self) -> impl Iterator<Item = &T> {
-        self.entries.iter().filter_map(|entry| match entry.kind {
-            EntryKind::Occupied(ref value) => Some(value),
-            _ => None,
-        })
-    }
-
-    pub fn iter_values_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.entries
-            .iter_mut()
-            .filter_map(|entry| match entry.kind {
-                EntryKind::Occupied(ref mut value) => Some(value),
-                _ => None,
-            })
-    }
-
     /// Returns a potentially dangling `Handle` for the entry at the given index.
     pub fn handle_from_index(&self, index: u32) -> Handle<T> {
         if let Some(entry) = self.entries.get(index as usize) {
             return Handle::new(index, entry.generation);
         }
         Handle::DANGLING
+    }
+}
+
+// NOTE: i wish there were a some kind of don't care mut/non-mut thingy.
+macro_rules! occupied_or_panic {
+    ($value:expr, $handle:expr) => {{
+        let handle = $handle;
+        match $value {
+            Some(Entry { kind, .. }) => match kind {
+                EntryKind::Occupied(value) => value,
+                EntryKind::Vacant { .. } => panic!("dangling handle: {handle:?}"),
+                EntryKind::Reserved => panic!("reserved handle: {handle:?}"),
+            },
+            None => panic!("dangling handle: {handle:?}"),
+        }
+    }};
+}
+
+impl<T> ops::Index<Handle<T>> for UnmanagedHandleArray<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, handle: Handle<T>) -> &Self::Output {
+        occupied_or_panic!(self.get_entry_by_handle(handle), handle)
+    }
+}
+
+impl<T> ops::IndexMut<Handle<T>> for UnmanagedHandleArray<T> {
+    #[inline]
+    fn index_mut(&mut self, handle: Handle<T>) -> &mut Self::Output {
+        occupied_or_panic!(self.get_entry_by_handle_mut(handle), handle)
     }
 }
 
@@ -601,10 +555,14 @@ mod oom {
 
     use super::*;
 
-    impl<T, A: Allocator> HandleArray<T, A> {
+    impl<T> UnmanagedHandleArray<T> {
         #[track_caller]
-        pub fn push_with(&mut self, f: impl FnOnce(Handle<T>) -> T) -> Handle<T> {
-            match self.try_push_with(f) {
+        pub fn push_with(
+            &mut self,
+            alloc: impl Allocator,
+            f: impl FnOnce(Handle<T>) -> T,
+        ) -> Handle<T> {
+            match self.try_push_with(alloc, f) {
                 Ok(handle) => handle,
                 Err(PushError {
                     kind: PushErrorKind::OutOfMemory(alloc_error),
@@ -614,8 +572,8 @@ mod oom {
         }
 
         #[inline]
-        pub fn push(&mut self, value: T) -> Handle<T> {
-            self.push_with(|_| value)
+        pub fn push(&mut self, alloc: impl Allocator, value: T) -> Handle<T> {
+            self.push_with(alloc, |_| value)
         }
     }
 }
@@ -624,37 +582,38 @@ mod oom {
 mod tests {
     use core::any::type_name_of_val;
 
+    use alloc::Global;
+
     use super::*;
 
     #[test]
     fn test_push_and_remove() {
-        let mut this = HandleArray::<_, alloc::Global>::default();
-        let handle = this.push("hello");
+        let mut this = UnmanagedHandleArray::default();
+        let handle = this.push(Global, "hello");
 
         assert_eq!(this.entries.len(), 1);
         assert_eq!(this.free_head, None);
 
         let res = this.remove(handle);
 
-        assert_eq!(res, "hello");
+        assert_eq!(res, Some("hello"));
         assert_eq!(this.entries.len(), 1);
         assert_eq!(this.free_head, Some(0));
     }
 
     #[test]
-    #[should_panic]
-    fn test_remove_at_invalid_handle() {
-        let mut this = HandleArray::<(), alloc::Global>::default();
+    fn test_remove_at_dangling_handle() {
+        let mut this = UnmanagedHandleArray::<()>::default();
         let handle = Handle::DANGLING;
-        this.remove(handle);
+        assert_eq!(this.remove(handle), None)
     }
 
     #[test]
     fn test_take_and_put_back() {
-        let mut this = HandleArray::<_, alloc::Global>::default();
-        let handle = this.push(42u8);
+        let mut this = UnmanagedHandleArray::default();
+        let handle = this.push(Global, 42u8);
 
-        let (ticket, value) = this.take(handle);
+        let (ticket, value) = this.try_take(handle).unwrap();
         assert_eq!(type_name_of_val(&value), "u8");
 
         this.put_back(ticket, value);
@@ -663,16 +622,16 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_drop_ticket_without_put_back() {
-        let mut this = HandleArray::<_, alloc::Global>::default();
-        let handle = this.push("hello");
-        this.take(handle);
+        let mut this = UnmanagedHandleArray::default();
+        let handle = this.push(Global, "hello");
+        _ = this.try_take(handle);
     }
 
     #[test]
     fn test_erased_handle_roundtrip() {
         let handle = Handle::<()>::new(42, FIRST_GENERATION);
         let erased_handle = handle.to_erased();
-        let reconstructed = unsafe { Handle::<()>::from_erased(erased_handle) };
+        let reconstructed = Handle::<()>::from_erased(erased_handle);
         assert_eq!(reconstructed, handle);
     }
 
@@ -688,17 +647,16 @@ mod tests {
     fn test_u64_handle_roundtrip() {
         let handle = Handle::<()>::new(42, FIRST_GENERATION);
         let u64_handle = handle.to_erased().to_u64();
-        let reconstructed =
-            unsafe { Handle::<()>::from_erased(ErasedHandle::from_u64(u64_handle)) };
+        let reconstructed = Handle::<()>::from_erased(ErasedHandle::from_u64(u64_handle));
         assert_eq!(reconstructed, handle);
     }
 
     #[test]
     fn test_free_chain() {
-        let mut this = HandleArray::<i32, alloc::Global>::default();
-        let h1 = this.push(10);
-        let h2 = this.push(20);
-        let h3 = this.push(30);
+        let mut this = UnmanagedHandleArray::default();
+        let h1 = this.push(Global, 10);
+        let h2 = this.push(Global, 20);
+        let h3 = this.push(Global, 30);
 
         // remove in order: builds chain 2 -> 1 -> 0
         this.remove(h1);
@@ -708,23 +666,23 @@ mod tests {
         let first_round_cap = this.entries.cap();
 
         // reuse should follow lifo: 2, 1, 0
-        let r1 = this.push(100);
+        let r1 = this.push(Global, 100);
         assert_eq!(r1.index, 2);
         assert_ne!(r1.generation, h3.generation); // generation bumped
 
-        let r2 = this.push(200);
+        let r2 = this.push(Global, 200);
         assert_eq!(r2.index, 1);
 
-        let r3 = this.push(300);
+        let r3 = this.push(Global, 300);
         assert_eq!(r3.index, 0);
 
         // old handles invalid, new ones valid
-        assert_eq!(this.try_get(h1), None);
-        assert_eq!(this.try_get(h2), None);
-        assert_eq!(this.try_get(h3), None);
-        assert_eq!(this.try_get(r1), Some(&100));
-        assert_eq!(this.try_get(r2), Some(&200));
-        assert_eq!(this.try_get(r3), Some(&300));
+        assert_eq!(this.get(h1), None);
+        assert_eq!(this.get(h2), None);
+        assert_eq!(this.get(h3), None);
+        assert_eq!(this.get(r1), Some(&100));
+        assert_eq!(this.get(r2), Some(&200));
+        assert_eq!(this.get(r3), Some(&300));
 
         let second_round_cap = this.entries.cap();
         // backing array must not have grown
