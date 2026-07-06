@@ -110,6 +110,16 @@ pub struct PushError<T> {
     pub value: T,
 }
 
+impl<T> PushError<T> {
+    pub fn new(kind: PushErrorKind, value: T) -> Self {
+        Self { kind, value }
+    }
+
+    pub fn new_oom(alloc_error: AllocError, value: T) -> Self {
+        Self::new(PushErrorKind::OutOfMemory(alloc_error), value)
+    }
+}
+
 impl<T> Error for PushError<T> {}
 
 impl<T> fmt::Display for PushError<T> {
@@ -135,6 +145,20 @@ pub enum InsertErrorKind {
 pub struct InsertError<T> {
     pub kind: InsertErrorKind,
     pub value: T,
+}
+
+impl<T> InsertError<T> {
+    fn new(kind: InsertErrorKind, value: T) -> Self {
+        Self { kind, value }
+    }
+
+    pub fn new_oob(index: usize, len: usize, value: T) -> Self {
+        Self::new(InsertErrorKind::OutOfBounds { index, len }, value)
+    }
+
+    pub fn new_oom(alloc_error: AllocError, value: T) -> Self {
+        Self::new(InsertErrorKind::OutOfMemory(alloc_error), value)
+    }
 }
 
 impl<T> Error for InsertError<T> {}
@@ -260,10 +284,7 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     #[inline]
     pub fn try_push(&mut self, value: T) -> Result<(), PushError<T>> {
         if let Err(alloc_error) = self.try_reserve_amortized(1) {
-            return Err(PushError {
-                kind: PushErrorKind::OutOfMemory(alloc_error),
-                value,
-            });
+            return Err(PushError::new_oom(alloc_error, value));
         }
         unsafe { self.push_within_cap_unchecked(value) };
         Ok(())
@@ -373,17 +394,11 @@ impl<T, M: ArrayMemory<T>> Array<T, M> {
     pub fn try_insert(&mut self, index: usize, value: T) -> Result<(), InsertError<T>> {
         let len = self.len();
         if index > self.len() {
-            return Err(InsertError {
-                kind: InsertErrorKind::OutOfBounds { index, len },
-                value,
-            });
+            return Err(InsertError::new_oob(index, len, value));
         }
 
         if let Err(alloc_error) = self.try_reserve_amortized(1) {
-            return Err(InsertError {
-                kind: InsertErrorKind::OutOfMemory(alloc_error),
-                value,
-            });
+            return Err(InsertError::new_oom(alloc_error, value));
         }
 
         unsafe {
