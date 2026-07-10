@@ -13,7 +13,7 @@
 
 use core::marker::PhantomData;
 use core::ptr::null_mut;
-use core::{alloc::Layout, fmt, ops, slice};
+use core::{alloc::Layout, fmt, ops};
 
 use alloc::{AllocError, Allocator};
 
