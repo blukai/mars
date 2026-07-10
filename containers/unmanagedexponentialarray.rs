@@ -12,7 +12,7 @@
 //   there's a niglty generic_const_exprs feature (maybe in 2036?)
 
 use core::marker::PhantomData;
-use core::ptr::null_mut;
+use core::ptr::{self, null_mut};
 use core::{alloc::Layout, fmt, ops};
 
 use alloc::{AllocError, Allocator};
@@ -83,7 +83,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     }
 
     pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<(), PushError<T>> {
-        let (item_idx, chunk_cap, chunk_idx) = chunk_index(self.len, SHIFT);
+        let (item_idx, chunk_cap, chunk_idx) = chunk_index(self.len(), SHIFT);
 
         if chunk_idx >= MAX_CHUNKS || item_idx >= chunk_cap {
             return Err(PushError::new_oom(AllocError, value));
@@ -112,20 +112,30 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         Ok(())
     }
 
-    pub fn get(&self, i: usize) -> Option<&T> {
-        if i >= self.len {
-            return None;
-        }
-        let (item_idx, _, chunk_idx) = chunk_index(i, SHIFT);
-        unsafe { Some(&*self.chunks[chunk_idx].add(item_idx)) }
+    unsafe fn get_unchecked(&self, index: usize) -> &T {
+        debug_assert!(index < self.len());
+        let (item_idx, _, chunk_idx) = chunk_index(index, SHIFT);
+        unsafe { &*self.chunks.get_unchecked(chunk_idx).add(item_idx) }
     }
 
-    pub fn get_mut(&mut self, i: usize) -> Option<&mut T> {
-        if i >= self.len {
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if index >= self.len() {
             return None;
         }
-        let (item_idx, _, chunk_idx) = chunk_index(i, SHIFT);
-        unsafe { Some(&mut *self.chunks[chunk_idx].add(item_idx)) }
+        unsafe { Some(self.get_unchecked(index)) }
+    }
+
+    unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        debug_assert!(index < self.len());
+        let (item_idx, _, chunk_idx) = chunk_index(index, SHIFT);
+        unsafe { &mut *self.chunks.get_unchecked_mut(chunk_idx).add(item_idx) }
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if index >= self.len() {
+            return None;
+        }
+        unsafe { Some(self.get_unchecked_mut(index)) }
     }
 
     pub fn iter<'a>(&'a self) -> Iter<'a, T, SHIFT, MAX_CHUNKS> {
@@ -141,6 +151,20 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             arr: self,
             next_idx: 0,
             _marker: PhantomData,
+        }
+    }
+
+    pub fn remove_unordered(&mut self, index: usize) -> Option<T> {
+        let len = self.len();
+        if index >= len {
+            return None;
+        }
+        unsafe {
+            let value_ptr = self.get_unchecked_mut(index) as *mut _;
+            let value = ptr::read(value_ptr);
+            ptr::copy(self.get_unchecked_mut(len - 1), value_ptr, 1);
+            self.len -= 1;
+            Some(value)
         }
     }
 }
@@ -179,7 +203,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> ops::Index<usize>
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         let Some(item) = self.get(index) else {
-            panic_bounds_check(index, self.len)
+            panic_bounds_check(index, self.len())
         };
         item
     }
@@ -298,5 +322,17 @@ mod tests {
             assert!(this.try_push(Global, i).is_ok());
         }
         assert!(this.try_push(Global, 0).is_err());
+    }
+
+    #[test]
+    fn test_remove_unordered() {
+        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+        assert!(this.remove_unordered(0).is_none());
+        assert!(this.try_push(Global, 1).is_ok());
+        assert!(this.try_push(Global, 2).is_ok());
+        assert!(this.try_push(Global, 3).is_ok());
+        assert_eq!(this.remove_unordered(0), Some(1));
+        assert_eq!(this.len(), 2);
+        assert!(this.iter().eq([3, 2].iter()));
     }
 }
