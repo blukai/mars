@@ -98,7 +98,8 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             };
             self.chunks[chunk_idx] = ptr.as_ptr().cast();
 
-            if cfg!(debug_assertions) {
+            #[cfg(debug_assertions)]
+            {
                 self.cap += chunk_cap;
                 assert_eq!(self.cap, self.cap());
             }
