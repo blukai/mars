@@ -113,8 +113,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         Ok(())
     }
 
-    unsafe fn get_unchecked(&self, index: usize) -> &T {
-        debug_assert!(index < self.len());
+    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
         let (item_idx, _, chunk_idx) = chunk_index(index, SHIFT);
         unsafe { &*self.chunks.get_unchecked(chunk_idx).add(item_idx) }
     }
@@ -126,8 +125,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         unsafe { Some(self.get_unchecked(index)) }
     }
 
-    unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
-        debug_assert!(index < self.len());
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
         let (item_idx, _, chunk_idx) = chunk_index(index, SHIFT);
         unsafe { &mut *self.chunks.get_unchecked_mut(chunk_idx).add(item_idx) }
     }
@@ -166,6 +164,16 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             ptr::copy(self.get_unchecked_mut(len - 1), value_ptr, 1);
             self.len -= 1;
             Some(value)
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len() == 0 {
+            return None;
+        }
+        unsafe {
+            self.len -= 1;
+            Some(ptr::read(self.get_unchecked(self.len())))
         }
     }
 }
@@ -335,5 +343,16 @@ mod tests {
         assert_eq!(this.remove_unordered(0), Some(1));
         assert_eq!(this.len(), 2);
         assert!(this.iter().eq([3, 2].iter()));
+    }
+
+    #[test]
+    fn test_pop() {
+        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+        assert_eq!(this.pop(), None);
+        assert!(this.try_push(Global, 1).is_ok());
+        assert!(this.try_push(Global, 2).is_ok());
+        assert_eq!(this.pop(), Some(2));
+        assert_eq!(this.pop(), Some(1));
+        assert_eq!(this.pop(), None);
     }
 }
