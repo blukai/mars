@@ -34,19 +34,27 @@ macro_rules! __max_chunks {
 
 pub use __max_chunks as max_chunks;
 
+#[inline(always)]
 pub const fn max_cap(shift: usize) -> usize {
     1 << (shift + max_chunks!(shift) - 1)
 }
 
+const fn msb64(n: u64) -> u32 {
+    debug_assert!(n != 0);
+    usize::BITS - 1 - n.leading_zeros()
+}
+
 #[inline(always)]
-const fn chunk_index(idx: usize, shift: usize) -> (usize, usize, usize) {
+const fn item_loc(idx: usize, shift: usize) -> (usize, usize, usize) {
+    // NOTE: see https://www.youtube.com/watch?v=i-h95QIGchY&t=3724 (with timecode).
+
     let mut item_idx = idx;
     let mut chunk_cap = 1 << shift;
     let mut chunk_idx = 0;
 
-    let i_shift = idx >> shift;
-    if i_shift > 0 {
-        chunk_idx = usize::BITS as usize - 1 - i_shift.leading_zeros() as usize;
+    let idx_shift = idx >> shift;
+    if idx_shift > 0 {
+        chunk_idx = msb64(idx_shift as u64) as usize;
         chunk_cap = 1 << (chunk_idx + shift);
         item_idx -= chunk_cap;
         chunk_idx += 1;
@@ -55,6 +63,14 @@ const fn chunk_index(idx: usize, shift: usize) -> (usize, usize, usize) {
     (item_idx, chunk_cap, chunk_idx)
 }
 
+#[inline(always)]
+const fn chunk_cap(chunk_idx: usize, shift: usize) -> usize {
+    1 << (chunk_idx.saturating_sub(1) + shift)
+}
+
+// NOTE: you probably want shift to be 4 or 8.
+//   - with 4 you'll get 16 chunks and 524288 items
+//   - with 8 - 8 chunks, 32768 items
 pub struct UnmanagedExponentialArray<T, const SHIFT: usize, const MAX_CHUNKS: usize> {
     chunks: [*mut T; MAX_CHUNKS],
     len: usize,
@@ -83,7 +99,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     }
 
     pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<(), PushError<T>> {
-        let (item_idx, chunk_cap, chunk_idx) = chunk_index(self.len(), SHIFT);
+        let (item_idx, chunk_cap, chunk_idx) = item_loc(self.len(), SHIFT);
 
         if chunk_idx >= MAX_CHUNKS || item_idx >= chunk_cap {
             return Err(PushError::new_oom(AllocError, value));
@@ -114,7 +130,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     }
 
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-        let (item_idx, _, chunk_idx) = chunk_index(index, SHIFT);
+        let (item_idx, _, chunk_idx) = item_loc(index, SHIFT);
         unsafe { &*self.chunks.get_unchecked(chunk_idx).add(item_idx) }
     }
 
@@ -126,7 +142,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     }
 
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
-        let (item_idx, _, chunk_idx) = chunk_index(index, SHIFT);
+        let (item_idx, _, chunk_idx) = item_loc(index, SHIFT);
         unsafe { &mut *self.chunks.get_unchecked_mut(chunk_idx).add(item_idx) }
     }
 
@@ -175,6 +191,51 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             self.len -= 1;
             Some(ptr::read(self.get_unchecked(self.len())))
         }
+    }
+
+    pub fn clear(&mut self) {
+        let Some(last_item_idx) = self.len().checked_sub(1) else {
+            return;
+        };
+
+        let (last_item_idx_within_chunk, _last_chunk_cap, last_chunk_idx) =
+            item_loc(last_item_idx, SHIFT);
+
+        for i in 0..last_chunk_idx {
+            let chunk_cap = chunk_cap(i, SHIFT);
+            unsafe {
+                ptr::slice_from_raw_parts_mut(self.chunks[i], chunk_cap).drop_in_place();
+            }
+        }
+
+        debug_assert!(last_item_idx_within_chunk > 0);
+        unsafe {
+            ptr::slice_from_raw_parts_mut(
+                self.chunks[last_chunk_idx],
+                last_item_idx_within_chunk + 1,
+            )
+            .drop_in_place();
+        }
+    }
+
+    pub fn deinit(&mut self, alloc: impl Allocator) {
+        self.clear();
+
+        for (i, it) in self.chunks.iter_mut().enumerate() {
+            if it.is_null() {
+                break;
+            }
+
+            let chunk_cap = chunk_cap(i, SHIFT);
+            unsafe {
+                // NOTE: chunk with invalid layout could not have been allocated.
+                let layout = Layout::array::<T>(chunk_cap).unwrap_unchecked();
+                alloc.deallocate(ptr::NonNull::new_unchecked(*it as *mut u8), layout);
+            }
+            *it = null_mut();
+        }
+
+        debug_assert!(self.chunks.iter().all(|it| it.is_null()));
     }
 }
 
@@ -311,6 +372,8 @@ mod tests {
 
     use alloc::Global;
 
+    use crate::testutil::struct_with_counted_drop;
+
     use super::*;
 
     #[test]
@@ -354,5 +417,30 @@ mod tests {
         assert_eq!(this.pop(), Some(2));
         assert_eq!(this.pop(), Some(1));
         assert_eq!(this.pop(), None);
+    }
+
+    #[test]
+    fn item_locs_chunk_cap_matches_chunk_cap_xd() {
+        const SHIFT: usize = 4;
+        for i in 0..max_cap(SHIFT) {
+            let (_, chunk_cap_, chunk_idx) = item_loc(i, SHIFT);
+            assert_eq!(chunk_cap_, chunk_cap(chunk_idx, SHIFT));
+        }
+    }
+
+    #[test]
+    fn test_deinit() {
+        struct_with_counted_drop!(Elem(u32), DROPS);
+
+        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+
+        const N: u32 = 5;
+        for i in 0..N {
+            this.push(Global, Elem(i));
+        }
+
+        assert_eq!(DROPS.get(), 0);
+        this.deinit(Global);
+        assert_eq!(DROPS.get(), N);
     }
 }
