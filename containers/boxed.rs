@@ -26,6 +26,16 @@ impl<T: ?Sized, A: Allocator> Box<T, A> {
         }
     }
 
+    #[inline]
+    pub fn as_ptr(this: &Self) -> *const T {
+        this.ptr.as_ptr()
+    }
+
+    #[inline]
+    pub fn as_mut_ptr(this: &Self) -> *mut T {
+        this.ptr.as_ptr()
+    }
+
     /// NOTE: this will not run the destructor of `T`.
     #[inline]
     pub fn into_raw_with_alloc(this: Self) -> (*mut T, A) {
@@ -35,8 +45,8 @@ impl<T: ?Sized, A: Allocator> Box<T, A> {
         (ptr, alloc)
     }
 
-    pub fn leak_with_alloc<'a>(self) -> (&'a mut T, A) {
-        let mut this = ManuallyDrop::new(self);
+    pub fn leak_with_alloc<'a>(this: Self) -> (&'a mut T, A) {
+        let mut this = ManuallyDrop::new(this);
         unsafe { (mem::transmute(this.ptr.as_mut()), ptr::read(&this.alloc)) }
     }
 }
