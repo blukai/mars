@@ -8,9 +8,6 @@ use crate::{AllocError, Allocator, align_up};
 
 pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 
-const HEADER_SIZE: usize = size_of::<Region>();
-const HEADER_ALIGN: usize = align_of::<Region>();
-
 #[non_exhaustive]
 pub struct ArenaCheckpoint(
     // NOTE: (null_mut(), 0) if arena was empty.
@@ -20,6 +17,13 @@ pub struct ArenaCheckpoint(
 struct Region {
     cap: usize,
     next: *mut Self,
+}
+
+fn make_region_layout_from_cap(cap: usize) -> Layout {
+    unsafe {
+        let size_including_header = cap + size_of::<Region>();
+        Layout::from_size_align_unchecked(size_including_header, align_of::<Region>())
+    }
 }
 
 // TODO: ArenaAllocator doesn't handle (/care about) potential int overflows.
@@ -36,7 +40,7 @@ pub struct ArenaAllocator<A: Allocator> {
 }
 
 impl<A: Allocator> ArenaAllocator<A> {
-    pub const fn new_in(backing_alloc: A, preferred_min_region_size: Option<usize>) -> Self {
+    pub const fn new(backing_alloc: A, preferred_min_region_size: Option<usize>) -> Self {
         let mut min_region_size = ARENA_DEFAULT_MIN_REGION_SIZE;
         if let Some(preferred) = preferred_min_region_size {
             min_region_size = preferred;
@@ -50,25 +54,16 @@ impl<A: Allocator> ArenaAllocator<A> {
         }
     }
 
-    // TODO: (for allocate and allocate_region?) don't you need to be taking into account alignment
-    // of the requested allocation?
-    //
-    //   wouldn't allocation fail if alignment of Region (header) is 16 and size of the requested
-    //   allocation is greater then min_region_size and alignment is greater then the alignment of
-    //   Region (header)?
-    //   this is easy enough to test - do it.
-    //
-    //   :AllocRegionSizeAlign
-
-    fn allocate_region(&self, min_size: usize) -> Result<*mut Region, AllocError> {
+    fn allocate_region(&self, triggers_layout: Layout) -> Result<*mut Region, AllocError> {
         unsafe {
-            let cap = min_size.max(self.min_region_size);
-            let size_including_header = cap + HEADER_SIZE;
-            // NOTE: Layout must be synced with what's in drop(). :ArenaRegionLayout
-            let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
-            let memory = self.backing_alloc.allocate(layout)?;
+            // NOTE: see :AllocRegionSizeAlign in temp alloc's code.
+            let alignment_padding = triggers_layout.align().saturating_sub(align_of::<Region>());
+            let min_cap = triggers_layout.size() + alignment_padding;
+            let cap = min_cap.max(self.min_region_size);
+            let layout = make_region_layout_from_cap(cap);
+            let ptr = self.backing_alloc.allocate(layout)?;
 
-            let region = memory.cast::<Region>().as_mut();
+            let region = ptr.cast::<Region>().as_mut();
             region.cap = cap;
             region.next = null_mut();
 
@@ -86,7 +81,7 @@ impl<A: Allocator> ArenaAllocator<A> {
             if self.curr.get().is_null() {
                 assert!(self.head.get().is_null());
                 assert!(self.curr_occupied.get() == 0);
-                let Ok(head) = self.allocate_region(layout.size()) else {
+                let Ok(head) = self.allocate_region(layout) else {
                     return null_mut();
                 };
                 self.head.set(head);
@@ -96,12 +91,13 @@ impl<A: Allocator> ArenaAllocator<A> {
 
             loop {
                 let curr_ptr = self.curr.get();
+                let addr_base = curr_ptr.addr() + size_of::<Region>();
                 let curr_occupied = self.curr_occupied.get();
-                let addr_base = curr_ptr.addr() + HEADER_SIZE;
                 let addr_maybe_unaligned = addr_base + curr_occupied;
                 let addr_aligned_up = align_up(addr_maybe_unaligned, layout.align());
                 let padding = addr_aligned_up - addr_maybe_unaligned;
-                let next_occupied = curr_occupied + layout.size() + padding;
+                let size_including_padding = layout.size() + padding;
+                let next_occupied = curr_occupied + size_including_padding;
                 if next_occupied <= (*curr_ptr).cap {
                     self.curr_occupied.set(next_occupied);
                     return addr_aligned_up as *mut u8;
@@ -117,7 +113,7 @@ impl<A: Allocator> ArenaAllocator<A> {
                 let next = if !curr.next.is_null() {
                     curr.next
                 } else {
-                    let Ok(next) = self.allocate_region(layout.size()) else {
+                    let Ok(next) = self.allocate_region(layout) else {
                         return null_mut();
                     };
                     curr.next = next;
@@ -139,7 +135,7 @@ impl<A: Allocator> ArenaAllocator<A> {
             let addr = memory.addr();
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
-                let start = (region as *const _ as *const u8).addr() + HEADER_SIZE;
+                let start = (region as *const _ as *const u8).addr() + size_of::<Region>();
                 let end = start + region.cap;
                 if addr >= start && addr < end {
                     return true;
@@ -193,9 +189,7 @@ impl<A: Allocator> Drop for ArenaAllocator<A> {
             while let Some(region) = cursor.as_mut() {
                 cursor = region.next;
 
-                let size_including_header = region.cap + HEADER_SIZE;
-                // NOTE: Layout must be synced with what's in allocate_region(). :ArenaRegionLayout
-                let layout = Layout::from_size_align_unchecked(size_including_header, HEADER_ALIGN);
+                let layout = make_region_layout_from_cap(region.cap);
                 self.backing_alloc
                     .deallocate(NonNull::from_mut(region).cast(), layout);
             }
@@ -206,7 +200,7 @@ impl<A: Allocator> Drop for ArenaAllocator<A> {
 impl<A: Allocator + Default> Default for ArenaAllocator<A> {
     #[inline]
     fn default() -> Self {
-        Self::new_in(A::default(), None)
+        Self::new(A::default(), None)
     }
 }
 
@@ -267,7 +261,7 @@ mod tests {
         let ca = CountingAllocator::new();
         {
             const MIN_REGION_SIZE: usize = 1000;
-            let arena = ArenaAllocator::new_in(&ca, Some(MIN_REGION_SIZE));
+            let arena = ArenaAllocator::new(&ca, Some(MIN_REGION_SIZE));
             let layout = Layout::from_size_align(MIN_REGION_SIZE / 2 + 2, 8).unwrap();
             let _p1 = arena.allocate(layout);
             let _p2 = arena.allocate(layout);

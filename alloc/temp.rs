@@ -99,29 +99,25 @@ impl<'data> TempAllocator<'data> {
         }
     }
 
-    // TODO: (for allocate and add_overflow_region?) don't you need to be taking into account
-    // alignment of the requested allocation?
-    //
-    //   wouldn't allocation fail if alignment of OverflowRegion (header) is 16 and size of the
-    //   requested allocation is greater then min_region_size and alignment is greater then the
-    //   alignment of OverflowRegion (header)? this is easy enough to test - do it.
-    //
-    //   :AllocRegionSizeAlign
-
-    fn add_overflow_region(&self, min_size: usize) -> Result<(), AllocError> {
+    fn add_overflow_region(&self, triggers_layout: Layout) -> Result<(), AllocError> {
         unsafe {
-            let cap = min_size.max(self.min_overflow_region_size);
+            // NOTE: :AllocRegionSizeAlign
+            let alignment_padding = triggers_layout
+                .align()
+                .saturating_sub(align_of::<OverflowRegion>());
+            let min_cap = triggers_layout.size() + alignment_padding;
+            let cap = min_cap.max(self.min_overflow_region_size);
             let layout = make_overflow_region_layout_from_cap(cap);
-            let memory = self.overflow_alloc.allocate(layout)?.cast::<u8>();
+            let ptr = self.overflow_alloc.allocate(layout)?;
 
-            let overflow_region = memory.cast::<OverflowRegion>().as_mut();
+            let overflow_region = ptr.cast::<OverflowRegion>().as_mut();
             overflow_region.cap = cap;
             overflow_region.prev = self.overflow_regions.get();
 
             self.overflow_regions.set(overflow_region);
 
             self.data
-                .set(memory.add(size_of::<OverflowRegion>()).as_ptr());
+                .set(ptr.cast::<u8>().add(size_of::<OverflowRegion>()).as_ptr());
             self.size.set(cap);
             self.occupied.set(0);
 
@@ -169,7 +165,7 @@ impl<'data> TempAllocator<'data> {
                 return addr_aligned_up as *mut u8;
             }
 
-            if self.add_overflow_region(layout.size()).is_err() {
+            if self.add_overflow_region(layout).is_err() {
                 return null_mut();
             };
         }
@@ -413,5 +409,68 @@ mod tests {
         }
 
         assert_eq!(tracker.live(), 0);
+    }
+
+    #[test]
+    #[ignore]
+    fn perhaps_we_can_get_into_an_infinite_loop_if_we_are_not_careful() {
+        // NOTE: the issue is that add_overflow_region is not (/were not) taking into account
+        // alignment + there was nothing that would have handled "merging" the requested layout with
+        // layout of prepended OverflowRegion.
+        //
+        //   the original realization of the issue (i want to preserve it):
+        //
+        //     for allocate and add_overflow_region; don't you need to be taking into account
+        //     alignment of the requested allocation?
+        //
+        //     wouldn't allocation fail if alignment of OverflowRegion (header) is 16 and size of
+        //     the requested allocation is greater then min_region_size and alignment is greater
+        //     then the alignment of OverflowRegion (header)? this is easy enough to test - do it.
+        //
+        //     :AllocRegionSizeAlign
+
+        struct LimitedAllocator {
+            remaining_allocation_count: Cell<usize>,
+            requested_layouts: Cell<std::vec::Vec<Layout>>,
+        }
+
+        impl LimitedAllocator {
+            fn new(rem: usize) -> Self {
+                Self {
+                    remaining_allocation_count: Cell::new(rem),
+                    requested_layouts: Cell::new(std::vec::Vec::default()),
+                }
+            }
+        }
+
+        unsafe impl Allocator for LimitedAllocator {
+            fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+                let mut allocated_layouts = self.requested_layouts.take();
+                allocated_layouts.push(layout);
+                self.requested_layouts.set(allocated_layouts);
+
+                let rem = self.remaining_allocation_count.get();
+                if rem == 0 {
+                    return Err(AllocError);
+                }
+                self.remaining_allocation_count.set(rem - 1);
+                crate::Global.allocate(layout)
+            }
+
+            unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+                unsafe { crate::Global.deallocate(ptr, layout) }
+            }
+        }
+
+        let mut data = [];
+        let limited_alloc = LimitedAllocator::new(2);
+        let temp_alloc = TempAllocator::new(&mut data, &limited_alloc, Some(64));
+        let layout = Layout::from_size_align(256, 4096).unwrap();
+        let ptr = temp_alloc.allocate(layout);
+        assert!(ptr.is_null());
+        assert_eq!(limited_alloc.remaining_allocation_count.get(), 0);
+        let requested_layouts = limited_alloc.requested_layouts.take();
+        assert_eq!(requested_layouts.len(), 3);
+        assert!(requested_layouts.iter().all(|it| it.size() > 128));
     }
 }
