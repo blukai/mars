@@ -8,21 +8,22 @@ use crate::{AllocError, Allocator, align_up};
 
 pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 
+// NOTE: can be { null_mut(), 0 } if arena was empty.
 #[non_exhaustive]
-pub struct ArenaCheckpoint(
-    // NOTE: (null_mut(), 0) if arena was empty.
-    (*mut Region, usize),
-);
+pub struct ArenaCheckpoint {
+    region: *mut ArenaRegion,
+    occupied: usize,
+}
 
-struct Region {
+struct ArenaRegion {
     cap: usize,
     next: *mut Self,
 }
 
-fn make_region_layout_from_cap(cap: usize) -> Layout {
+fn make_arena_region_layout_from_cap(cap: usize) -> Layout {
     unsafe {
-        let size_including_header = cap + size_of::<Region>();
-        Layout::from_size_align_unchecked(size_including_header, align_of::<Region>())
+        let size_including_header = cap + size_of::<ArenaRegion>();
+        Layout::from_size_align_unchecked(size_including_header, align_of::<ArenaRegion>())
     }
 }
 
@@ -33,8 +34,8 @@ fn make_region_layout_from_cap(cap: usize) -> Layout {
 pub struct ArenaAllocator<A: Allocator> {
     backing_alloc: A,
     min_region_size: usize,
-    head: Cell<*mut Region>,
-    curr: Cell<*mut Region>,
+    head: Cell<*mut ArenaRegion>,
+    curr: Cell<*mut ArenaRegion>,
     curr_occupied: Cell<usize>,
     // TODO: track total_occupied.
 }
@@ -54,16 +55,18 @@ impl<A: Allocator> ArenaAllocator<A> {
         }
     }
 
-    fn allocate_region(&self, triggers_layout: Layout) -> Result<*mut Region, AllocError> {
+    fn allocate_region(&self, triggers_layout: Layout) -> Result<*mut ArenaRegion, AllocError> {
         unsafe {
             // NOTE: see :AllocRegionSizeAlign in temp alloc's code.
-            let alignment_padding = triggers_layout.align().saturating_sub(align_of::<Region>());
+            let alignment_padding = triggers_layout
+                .align()
+                .saturating_sub(align_of::<ArenaRegion>());
             let min_cap = triggers_layout.size() + alignment_padding;
             let cap = min_cap.max(self.min_region_size);
-            let layout = make_region_layout_from_cap(cap);
+            let layout = make_arena_region_layout_from_cap(cap);
             let ptr = self.backing_alloc.allocate(layout)?;
 
-            let region = ptr.cast::<Region>().as_mut();
+            let region = ptr.cast::<ArenaRegion>().as_mut();
             region.cap = cap;
             region.next = null_mut();
 
@@ -91,7 +94,7 @@ impl<A: Allocator> ArenaAllocator<A> {
 
             loop {
                 let curr_ptr = self.curr.get();
-                let addr_base = curr_ptr.addr() + size_of::<Region>();
+                let addr_base = curr_ptr.addr() + size_of::<ArenaRegion>();
                 let curr_occupied = self.curr_occupied.get();
                 let addr_maybe_unaligned = addr_base + curr_occupied;
                 let addr_aligned_up = align_up(addr_maybe_unaligned, layout.align());
@@ -130,12 +133,12 @@ impl<A: Allocator> ArenaAllocator<A> {
         self.curr_occupied.set(0);
     }
 
-    pub fn is_this_your_memory<T>(&self, memory: *const T) -> bool {
+    pub fn is_this_your_memory<T>(&self, ptr: *const T) -> bool {
         unsafe {
-            let addr = memory.addr();
+            let addr = ptr.addr();
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
-                let start = (region as *const _ as *const u8).addr() + size_of::<Region>();
+                let start = (region as *const _ as *const u8).addr() + size_of::<ArenaRegion>();
                 let end = start + region.cap;
                 if addr >= start && addr < end {
                     return true;
@@ -149,10 +152,9 @@ impl<A: Allocator> ArenaAllocator<A> {
 
     fn is_this_your_checkoint(&self, checkpoint: &ArenaCheckpoint) -> bool {
         unsafe {
-            let ArenaCheckpoint((ptr, _)) = *checkpoint;
             let mut cursor = self.head.get();
             while let Some(region) = cursor.as_mut() {
-                if ptr::eq(region, ptr) {
+                if ptr::eq(region, checkpoint.region) {
                     return true;
                 }
 
@@ -163,17 +165,19 @@ impl<A: Allocator> ArenaAllocator<A> {
     }
 
     pub fn make_checkpoint(&self) -> ArenaCheckpoint {
-        ArenaCheckpoint((self.curr.get(), self.curr_occupied.get()))
+        ArenaCheckpoint {
+            region: self.curr.get(),
+            occupied: self.curr_occupied.get(),
+        }
     }
 
     pub fn reset_to_checkpoint(&self, checkpoint: ArenaCheckpoint) {
-        let ArenaCheckpoint((ptr, occupied)) = checkpoint;
-        if ptr.is_null() {
+        if checkpoint.region.is_null() {
             return self.reset();
         }
         assert!(self.is_this_your_checkoint(&checkpoint));
-        self.curr.set(ptr);
-        self.curr_occupied.set(occupied);
+        self.curr.set(checkpoint.region);
+        self.curr_occupied.set(checkpoint.occupied);
     }
 
     pub fn checkpoint(&self) -> DropGuard<(), impl FnOnce(())> {
@@ -189,7 +193,7 @@ impl<A: Allocator> Drop for ArenaAllocator<A> {
             while let Some(region) = cursor.as_mut() {
                 cursor = region.next;
 
-                let layout = make_region_layout_from_cap(region.cap);
+                let layout = make_arena_region_layout_from_cap(region.cap);
                 self.backing_alloc
                     .deallocate(NonNull::from_mut(region).cast(), layout);
             }

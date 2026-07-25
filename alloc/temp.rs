@@ -30,15 +30,15 @@ use crate::{AllocError, Allocator, align_up};
 pub const DEFAULT_TEMP_DATA_SIZE: usize = 40 << 10;
 
 #[derive(Debug)]
-struct OverflowRegion {
+struct TempOverflowRegion {
     cap: usize,
     prev: *mut Self,
 }
 
-fn make_overflow_region_layout_from_cap(cap: usize) -> Layout {
+fn make_temp_overflow_region_layout_from_cap(cap: usize) -> Layout {
     unsafe {
-        let size_including_header = cap + size_of::<OverflowRegion>();
-        Layout::from_size_align_unchecked(size_including_header, align_of::<OverflowRegion>())
+        let size_including_header = cap + size_of::<TempOverflowRegion>();
+        Layout::from_size_align_unchecked(size_including_header, align_of::<TempOverflowRegion>())
     }
 }
 
@@ -46,7 +46,7 @@ fn make_overflow_region_layout_from_cap(cap: usize) -> Layout {
 pub struct TempCheckpoint {
     pub occupied: usize,
     pub total_occupied: usize,
-    overflow_region: *mut OverflowRegion,
+    overflow_region: *mut TempOverflowRegion,
 }
 
 // NOTE: whenever you add/remove fields - don't forget to update debug impl. :TempDebug
@@ -67,7 +67,7 @@ pub struct TempAllocator<'data> {
 
     overflow_alloc: &'data dyn Allocator,
     min_overflow_region_size: usize,
-    overflow_regions: Cell<*mut OverflowRegion>,
+    overflow_regions: Cell<*mut TempOverflowRegion>,
     initial_data: *mut u8,
     initial_size: usize,
 }
@@ -104,20 +104,23 @@ impl<'data> TempAllocator<'data> {
             // NOTE: :AllocRegionSizeAlign
             let alignment_padding = triggers_layout
                 .align()
-                .saturating_sub(align_of::<OverflowRegion>());
+                .saturating_sub(align_of::<TempOverflowRegion>());
             let min_cap = triggers_layout.size() + alignment_padding;
             let cap = min_cap.max(self.min_overflow_region_size);
-            let layout = make_overflow_region_layout_from_cap(cap);
+            let layout = make_temp_overflow_region_layout_from_cap(cap);
             let ptr = self.overflow_alloc.allocate(layout)?;
 
-            let overflow_region = ptr.cast::<OverflowRegion>().as_mut();
+            let overflow_region = ptr.cast::<TempOverflowRegion>().as_mut();
             overflow_region.cap = cap;
             overflow_region.prev = self.overflow_regions.get();
 
             self.overflow_regions.set(overflow_region);
 
-            self.data
-                .set(ptr.cast::<u8>().add(size_of::<OverflowRegion>()).as_ptr());
+            self.data.set(
+                ptr.cast::<u8>()
+                    .add(size_of::<TempOverflowRegion>())
+                    .as_ptr(),
+            );
             self.size.set(cap);
             self.occupied.set(0);
 
@@ -125,7 +128,7 @@ impl<'data> TempAllocator<'data> {
         }
     }
 
-    fn remove_overflow_regions_down_to(&self, target: *mut OverflowRegion) {
+    fn remove_overflow_regions_down_to(&self, target: *mut TempOverflowRegion) {
         unsafe {
             let mut cursor = self.overflow_regions.get();
             while cursor != target {
@@ -134,7 +137,7 @@ impl<'data> TempAllocator<'data> {
                 let overflow_region = &mut *cursor;
                 cursor = overflow_region.prev;
 
-                let layout = make_overflow_region_layout_from_cap(overflow_region.cap);
+                let layout = make_temp_overflow_region_layout_from_cap(overflow_region.cap);
                 self.overflow_alloc
                     .deallocate(NonNull::from_mut(overflow_region).cast(), layout);
             }
@@ -186,8 +189,9 @@ impl<'data> TempAllocator<'data> {
             self.remove_overflow_regions_down_to(checkpoint.overflow_region);
 
             if let Some(overflow_region) = checkpoint.overflow_region.as_mut() {
-                self.data
-                    .set((overflow_region as *mut _ as *mut u8).add(size_of::<OverflowRegion>()));
+                self.data.set(
+                    (overflow_region as *mut _ as *mut u8).add(size_of::<TempOverflowRegion>()),
+                );
                 self.size.set(overflow_region.cap);
             } else {
                 self.data.set(self.initial_data);
