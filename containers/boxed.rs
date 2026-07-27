@@ -149,9 +149,9 @@ impl<T: ?Sized, A: Allocator> Drop for Box<T, A> {
     }
 }
 
-unsafe impl<T: Send + ?Sized, A: Allocator> Send for Box<T, A> {}
+unsafe impl<T: Send + ?Sized, A: Allocator + Send> Send for Box<T, A> {}
 
-unsafe impl<T: Sync + ?Sized, A: Allocator> Sync for Box<T, A> {}
+unsafe impl<T: Sync + ?Sized, A: Allocator + Sync> Sync for Box<T, A> {}
 
 // ----
 
@@ -183,3 +183,21 @@ mod oom {
         }
     }
 }
+
+/// allows turning a `Box<T: Sized, A>` into a `Box<U: ?Sized, A>`.
+/// std box can do this automatically using the unstable unsize traits.
+///
+/// NOTE: this is stolen from allocator-api2 crate. thanks.
+#[macro_export]
+macro_rules! __unsize_box {
+    ($boxed:expr $(,)?) => {{
+        let (ptr, allocator) = $crate::boxed::Box::into_raw_with_alloc($boxed);
+        // NOTE: the compiler *will* allow an unsizing coercion to happen into the `ptr` place, if one is
+        // available.
+        let ptr: *mut _ = ptr;
+        // SAFETY: see above for why ptr's type can only be something that can be safely coerced.
+        unsafe { $crate::boxed::Box::from_raw_in(ptr, allocator) }
+    }};
+}
+
+pub use __unsize_box as unsize_box;
