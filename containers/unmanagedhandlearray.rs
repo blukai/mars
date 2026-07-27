@@ -514,6 +514,10 @@ impl<T> UnmanagedHandleArray<T> {
         }
         Handle::DANGLING
     }
+
+    pub fn deinit(&mut self, alloc: impl Allocator) {
+        self.entries.deinit(alloc);
+    }
 }
 
 // NOTE: i wish there were a some kind of don't care mut/non-mut thingy.
