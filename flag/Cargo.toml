@@ -9,6 +9,3 @@ path = "flag.rs"
 [dependencies]
 alloc = { workspace = true }
 containers = { workspace = true }
-
-[dev-dependencies]
-arg = { workspace = true }

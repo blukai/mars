@@ -2,24 +2,29 @@
 //!
 //! incorporates tsoding's idea for ignoring flags: <https://github.com/tsoding/flag.h>.
 
-use std::borrow::Cow;
-use std::ffi::{OsStr, OsString};
-use std::ops::{ControlFlow, Range};
-use std::path::PathBuf;
-use std::{cmp, error, fmt, io, str};
+use core::ops::{ControlFlow, Range};
+use core::{any, cmp, error, fmt, str};
+use std::io;
 
 use alloc::Allocator;
 use containers::array::ArrayMemory;
 use containers::sortedarray::{SortedArrayCompare, SortedArraySet, SpillableSortedArraySet};
 
-pub type ValueError = Box<dyn std::error::Error>;
+// NOTE: everything operates on std String here; no CStr, no OsStr, etc.
+//   it's just easier and simpler and cleaner this way.
 
-pub trait Value<'s>: fmt::Debug {
-    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
+pub type ValueError = Box<dyn error::Error>;
+
+pub trait Value: fmt::Debug {
+    fn parse(s: String) -> Result<Self, ValueError>
     where
         Self: Sized;
 
-    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError>;
+    fn assign(&mut self, s: String) -> Result<(), ValueError>;
+
+    fn assign_implicit_true(&mut self) {
+        unreachable!();
+    }
 
     fn type_is_bool() -> bool
     where
@@ -33,8 +38,8 @@ pub trait Value<'s>: fmt::Debug {
     }
 }
 
-impl<'s> Value<'s> for bool {
-    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
+impl Value for bool {
+    fn parse(s: String) -> Result<Self, ValueError>
     where
         Self: Sized,
     {
@@ -43,12 +48,16 @@ impl<'s> Value<'s> for bool {
         match s.as_ref() {
             "1" | "t" | "T" | "true" | "TRUE" | "True" => Ok(true),
             "0" | "f" | "F" | "false" | "FALSE" | "False" => Ok(false),
-            _ => Err(format!("{s} could not be parsed as bool").into()),
+            _ => Err(format!("'{s}' could not be parsed as bool").into()),
         }
     }
 
-    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+    fn assign(&mut self, s: String) -> Result<(), ValueError> {
         Self::parse(s).map(|v| *self = v)
+    }
+
+    fn assign_implicit_true(&mut self) {
+        *self = true;
     }
 
     fn type_is_bool() -> bool
@@ -59,31 +68,15 @@ impl<'s> Value<'s> for bool {
     }
 }
 
-impl<'s> Value<'s> for Cow<'s, str> {
-    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
-    where
-        Self: Sized,
-    {
-        Ok(s)
-    }
-
-    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
-        Self::parse(s).map(|v| *self = v)
-    }
-}
-
-impl<'s, T> Value<'s> for Option<T>
-where
-    T: Value<'s>,
-{
-    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
+impl<T: Value> Value for Option<T> {
+    fn parse(s: String) -> Result<Self, ValueError>
     where
         Self: Sized,
     {
         T::parse(s).map(Some)
     }
 
-    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+    fn assign(&mut self, s: String) -> Result<(), ValueError> {
         if let Some(inner) = self {
             inner.assign(s)
         } else {
@@ -109,12 +102,12 @@ where
 // NOTE: impl_value_from_borrowed is for types that result in parsing types discard the source &str/String.
 macro_rules! impl_value_for_from_borrowed {
     ($t:ty) => {
-        impl<'s> Value<'s> for $t {
-            fn parse(s: Cow<'s, str>) -> Result<Self, ValueError> {
-                std::str::FromStr::from_str(s.as_ref()).map_err(ValueError::from)
+        impl Value for $t {
+            fn parse(s: String) -> Result<Self, ValueError> {
+                str::FromStr::from_str(s.as_ref()).map_err(ValueError::from)
             }
 
-            fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+            fn assign(&mut self, s: String) -> Result<(), ValueError> {
                 Self::parse(s).map(|v| *self = v)
             }
         }
@@ -139,24 +132,22 @@ impl_value_for_from_borrowed!(usize);
 // NOTE: impl_value_for_from_owned is for types that want to own String.
 macro_rules! impl_value_for_from_owned {
     ($t:ty) => {
-        impl<'s> Value<'s> for $t {
-            fn parse(s: Cow<'s, str>) -> Result<Self, ValueError> {
-                Ok(<$t>::from(s.into_owned()))
+        impl Value for $t {
+            fn parse(s: String) -> Result<Self, ValueError> {
+                Ok(<$t>::from(s))
             }
 
-            fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+            fn assign(&mut self, s: String) -> Result<(), ValueError> {
                 Self::parse(s).map(|v| *self = v)
             }
         }
     };
 }
 
-impl_value_for_from_owned!(OsString);
-impl_value_for_from_owned!(PathBuf);
 impl_value_for_from_owned!(String);
 
-impl<'s, T: Value<'s> + Ord, M: ArrayMemory<T>> Value<'s> for SortedArraySet<T, M> {
-    fn parse(s: Cow<'s, str>) -> Result<Self, ValueError>
+impl<T: Value + Ord, M: ArrayMemory<T>> Value for SortedArraySet<T, M> {
+    fn parse(s: String) -> Result<Self, ValueError>
     where
         Self: Sized,
     {
@@ -164,10 +155,10 @@ impl<'s, T: Value<'s> + Ord, M: ArrayMemory<T>> Value<'s> for SortedArraySet<T, 
         // NOTE: this is a developer error.
         //
         // MAYBE: can type system can protect from this?
-        unreachable!("{} must be initialized", std::any::type_name::<Self>());
+        unreachable!("{} must be initialized", any::type_name::<Self>());
     }
 
-    fn assign(&mut self, s: Cow<'s, str>) -> Result<(), ValueError> {
+    fn assign(&mut self, s: String) -> Result<(), ValueError> {
         T::parse(s).map(|v| self.insert(v))
     }
 }
@@ -185,63 +176,30 @@ fn test_option_is_none() {
 }
 
 #[derive(Debug)]
-pub enum ArgKind<'s> {
-    Str(&'s str),
-    String(String),
-    OsStr(&'s OsStr),
-    OsString(OsString),
-}
-
-impl<'s> ArgKind<'s> {
-    pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::Str(str) => str.as_bytes(),
-            Self::String(string) => string.as_bytes(),
-            Self::OsStr(os_str) => os_str.as_encoded_bytes(),
-            Self::OsString(os_string) => os_string.as_encoded_bytes(),
-        }
-    }
-
-    pub fn into_cow_str(self) -> Result<Cow<'s, str>, Self> {
-        match self {
-            Self::Str(str) => Ok(Cow::Borrowed(str)),
-            Self::String(string) => Ok(Cow::Owned(string)),
-            Self::OsStr(os_str) => <&'s str>::try_from(os_str)
-                .map(Cow::Borrowed)
-                .map_err(|_| self),
-            Self::OsString(os_string) => os_string
-                .into_string()
-                .map(Cow::Owned)
-                .map_err(Self::OsString),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ParseBreak<'s> {
+pub enum ParseBreak {
     Help,
-    NonFlag(ArgKind<'s>),
+    NonFlag(String),
     // the "--" terminator. see guideline 10 of
     // https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html
     Terminator,
 }
 
 #[derive(Debug)]
-pub enum ParseError<'a, 's> {
-    InvalidArg(ArgKind<'s>),
-    InvalidSyntax { arg: Cow<'s, str> },
-    UnknownFlag { flag_name: Cow<'s, str> },
+pub enum ParseError<'a> {
+    InvalidArg(String),
+    InvalidSyntax { arg: String },
+    UnknownFlag { flag_name: String },
     MissingValue { flag_name: &'a str },
     CouldNotAssignValue { flag_name: &'a str, err: ValueError },
 }
 
-impl<'a, 's> error::Error for ParseError<'a, 's> {}
+impl<'a> error::Error for ParseError<'a> {}
 
 // NOTE: anyhow is whining about ParseError not being Send+Sync.
-unsafe impl<'a, 's> Send for ParseError<'a, 's> {}
-unsafe impl<'a, 's> Sync for ParseError<'a, 's> {}
+unsafe impl<'a> Send for ParseError<'a> {}
+unsafe impl<'a> Sync for ParseError<'a> {}
 
-impl<'a, 's> fmt::Display for ParseError<'a, 's> {
+impl<'a> fmt::Display for ParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidArg(arg) => write!(f, "invalid arg: {arg:?}"),
@@ -258,53 +216,49 @@ impl<'a, 's> fmt::Display for ParseError<'a, 's> {
 }
 
 #[derive(Debug)]
-pub enum ParseOutcome<'a, 's> {
+pub enum ParseOutcome<'a> {
     Ok,
-    Break(ParseBreak<'s>),
-    Error(ParseError<'a, 's>),
+    Break(ParseBreak),
+    Error(ParseError<'a>),
 }
 
-struct Flag<'a, 's> {
+struct Flag<'a> {
     name: &'a str,
-    value: &'a mut dyn Value<'s>,
+    value: &'a mut dyn Value,
     usage: &'a str,
     dirty: bool,
     value_type_is_bool: bool,
 }
 
-impl<'a, 's> SortedArrayCompare for Flag<'a, 's> {
+impl<'a> SortedArrayCompare for Flag<'a> {
     fn compare(&self, other: &Self) -> cmp::Ordering {
         Ord::cmp(self.name, other.name)
     }
 }
 
-fn parse_one<'a, 's, I>(
+fn parse_one<'a, I>(
     args: &mut I,
-    flags: &mut [Flag<'a, 's>],
-) -> Result<ControlFlow<Option<ParseBreak<'s>>>, ParseError<'a, 's>>
+    flags: &mut [Flag<'a>],
+) -> Result<ControlFlow<Option<ParseBreak>>, ParseError<'a>>
 where
-    I: Iterator<Item = ArgKind<'s>>,
+    I: Iterator<Item = String>,
 {
-    let Some(arg_kind) = args.next() else {
+    let Some(mut arg) = args.next() else {
         return Ok(ControlFlow::Break(None));
     };
 
-    // NOTE: don't convert into cow str, just yet. maybe we'll need to return it to the caller.
-    let arg_bytes = arg_kind.as_bytes();
-    if !arg_bytes.starts_with(b"-") {
+    if !arg.starts_with("-") {
         // NOTE: non-flag arg, terminate.
-        return Ok(ControlFlow::Break(Some(ParseBreak::NonFlag(arg_kind))));
+        return Ok(ControlFlow::Break(Some(ParseBreak::NonFlag(arg))));
     }
     let mut num_minuses = 1;
-    if arg_bytes[num_minuses..].starts_with(b"-") {
+    if arg[num_minuses..].starts_with("-") {
         num_minuses += 1;
         // NOTE: `--` terminates flags.
-        if arg_bytes == b"--" {
+        if arg == "--" {
             return Ok(ControlFlow::Break(Some(ParseBreak::Terminator)));
         }
     }
-
-    let arg = arg_kind.into_cow_str().map_err(ParseError::InvalidArg)?;
 
     // NOTE: this is tsoding's idea, see https://github.com/tsoding/flag.h.
     let mut ignore = false;
@@ -333,49 +287,55 @@ where
         };
     };
 
-    let value: Cow<'s, str> = match maybe_value_range {
-        Some(value_range) => match arg {
-            Cow::Borrowed(str) => Cow::Borrowed(&str[value_range]),
-            Cow::Owned(mut string) => {
-                string.replace_range(0..value_range.start, "");
-                Cow::Owned(string)
+    macro_rules! assign {
+        ($value:expr) => {
+            flag.value
+                .assign($value)
+                .map_err(|err| ParseError::CouldNotAssignValue {
+                    flag_name: flag.name,
+                    err,
+                })
+        };
+    }
+
+    match maybe_value_range {
+        Some(value_range) => {
+            if !ignore {
+                arg.replace_range(0..value_range.start, "");
+                assign!(arg)?;
             }
-        },
+        }
         // NOTE: bool is a special case.
         //   it doesn't require an arg, but is allowed to have it.
         //   unlike with any other kind of flag space is not allowed between flag name and its
         //   value because of * wildcard.
-        None if flag.value_type_is_bool => Cow::Borrowed("true"),
-        _ => args
-            .next()
-            .ok_or(ParseError::MissingValue {
+        None if flag.value_type_is_bool => {
+            if !ignore {
+                flag.value.assign_implicit_true();
+            }
+        }
+        None => {
+            let value = args.next().ok_or(ParseError::MissingValue {
                 flag_name: flag.name,
-            })?
-            .into_cow_str()
-            .map_err(ParseError::InvalidArg)?,
+            })?;
+            if !ignore {
+                assign!(value)?;
+            }
+        }
     };
 
-    // TODO: should value be validated regardless of whether it's ignored or not?
-    if !ignore {
-        flag.value
-            .assign(value)
-            .map_err(|err| ParseError::CouldNotAssignValue {
-                flag_name: flag.name,
-                err,
-            })?;
-        flag.dirty = true;
-    }
+    flag.dirty = !ignore;
 
     Ok(ControlFlow::Continue(()))
 }
 
 #[derive(Default)]
-pub struct FlagSet<'a, 's, const N: usize = 32, A: Allocator = alloc::Global> {
-    flags: SpillableSortedArraySet<Flag<'a, 's>, N, A>,
+pub struct FlagSet<'a, const N: usize = 32, A: Allocator = alloc::Global> {
+    flags: SpillableSortedArraySet<Flag<'a>, N, A>,
 }
 
-impl<'a, 's> FlagSet<'a, 's> {
-    pub fn add<T: Value<'s>>(mut self, name: &'a str, value: &'a mut T, usage: &'a str) -> Self {
+impl<'a> FlagSet<'a> {
+    pub fn add<T: Value>(mut self, name: &'a str, value: &'a mut T, usage: &'a str) -> Self {
         assert!(!name.is_empty(), "empty flag name");
         assert!(!name.starts_with('-'), "flag {name} starts with -");
         assert!(!name.contains('='), "flag {name} contains =");
@@ -423,9 +383,9 @@ impl<'a, 's> FlagSet<'a, 's> {
     }
 
     // NOTE: program name must not be included.
-    pub fn parse<I>(&mut self, mut args: I) -> ParseOutcome<'a, 's>
+    pub fn parse<I>(&mut self, mut args: I) -> ParseOutcome<'a>
     where
-        I: Iterator<Item = ArgKind<'s>>,
+        I: Iterator<Item = String>,
     {
         loop {
             match parse_one(&mut args, &mut self.flags.0) {
