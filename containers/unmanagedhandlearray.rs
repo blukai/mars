@@ -1,7 +1,7 @@
 use core::any::{TypeId, type_name};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
-use core::{fmt, mem, ops};
+use core::{cmp, fmt, mem, ops};
 
 use alloc::Allocator;
 
@@ -152,14 +152,14 @@ impl<T> Eq for Handle<T> {}
 // :BlindDerive
 impl<T> PartialOrd for Handle<T> {
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 // :BlindDerive
 impl<T> Ord for Handle<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.index
             .cmp(&other.index)
             .then(self.generation.cmp(&other.generation))

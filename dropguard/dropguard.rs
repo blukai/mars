@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 /// "user-space" implementation of something like `defer`.
 ///
@@ -60,7 +60,7 @@ impl<T, F: FnOnce(T)> DerefMut for DropGuard<T, F> {
 
 #[test]
 fn test_dropguard() {
-    let drops = std::cell::Cell::new(0);
+    let drops = core::cell::Cell::new(0);
     {
         let _guard = DropGuard::new(|| drops.set(1));
         assert_eq!(drops.get(), 0);

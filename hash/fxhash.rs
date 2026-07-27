@@ -57,6 +57,7 @@
 //! and <https://searchfox.org/firefox-main/rev/f32cfcbfa2ec5417780e0d8d7b16530523a009c2/mfbt/HashFunctions.cpp>
 
 use core::hash::{BuildHasherDefault, Hasher};
+use core::ptr;
 
 // NOTE: u64 golden ration is stolen from old version of rustc_hash
 //   see <https://github.com/rust-lang/rustc-hash/blob/786ccda70fce97a3177d6088f21a22ac7f0f2f85/src/lib.rs#L67>
@@ -79,7 +80,7 @@ pub const fn hash_bytes(bytes: &[u8]) -> u64 {
     // hash as u64s first (unaligned)
     let p = bytes.as_ptr();
     while i < bytes.len() - (bytes.len() % size_of::<u64>()) {
-        let value = unsafe { std::ptr::read_unaligned(p.add(i) as *const u64) };
+        let value = unsafe { ptr::read_unaligned(p.add(i) as *const u64) };
         hash = add_u64_to_hash(hash, value);
         i += size_of::<u64>();
     }

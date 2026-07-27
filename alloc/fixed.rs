@@ -61,7 +61,7 @@ unsafe impl<'data> Allocator for FixedAllocator<'data> {
 
 // :FixedDebug
 impl<'data> fmt::Debug for FixedAllocator<'data> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(core::any::type_name_of_val(self))
             .field("data", &self.data)
             .field("size", &self.size)

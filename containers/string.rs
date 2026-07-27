@@ -428,7 +428,7 @@ impl<M: ArrayMemory<u8>> fmt::Write for String<M> {
     }
 
     #[inline]
-    fn write_char(&mut self, c: char) -> std::fmt::Result {
+    fn write_char(&mut self, c: char) -> fmt::Result {
         self.try_push_char(c).map_err(|_| fmt::Error)
     }
 }

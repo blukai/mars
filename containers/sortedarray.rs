@@ -1,7 +1,6 @@
 use core::borrow::Borrow;
 use core::cmp::Ordering;
-use core::fmt;
-use std::mem;
+use core::{fmt, mem};
 
 use alloc::{AllocError, Allocator};
 

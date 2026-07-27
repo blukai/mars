@@ -1,4 +1,5 @@
-use std::{error, fmt, io};
+use core::{error, fmt, ops};
+use std::io;
 
 #[cfg(test)]
 mod varint_tests;
@@ -120,7 +121,7 @@ pub fn write_varint64<W: io::Write>(w: W, value: i64) -> Result<usize, io::Error
 #[inline(always)]
 fn read_uvarint<R: io::Read, T>(rdr: &mut R) -> Result<(T, usize), ReadVarintError>
 where
-    T: From<u8> + std::ops::BitOrAssign + std::ops::Shl<usize, Output = T>,
+    T: From<u8> + ops::BitOrAssign + ops::Shl<usize, Output = T>,
 {
     let mut buf = [0u8; 1];
 

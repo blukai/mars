@@ -1,8 +1,7 @@
 //! this is a partial port of valve's bitbuf. original implementation can be found on github
 //! <https://github.com/ValveSoftware/source-sdk-2013>.
 
-use std::error::Error;
-use std::fmt;
+use core::{error, fmt, mem, ops};
 
 use varint::{
     CONTINUE_BIT, PAYLOAD_BITS, max_varint_size, zigzag_decode32, zigzag_decode64, zigzag_encode64,
@@ -73,7 +72,7 @@ impl fmt::Display for OverflowError {
     }
 }
 
-impl Error for OverflowError {}
+impl error::Error for OverflowError {}
 
 #[derive(Debug)]
 pub enum ReadIntoBufferError {
@@ -90,7 +89,7 @@ impl fmt::Display for ReadIntoBufferError {
     }
 }
 
-impl Error for ReadIntoBufferError {}
+impl error::Error for ReadIntoBufferError {}
 
 #[derive(Debug)]
 pub enum ReadVarintError {
@@ -107,7 +106,7 @@ impl fmt::Display for ReadVarintError {
     }
 }
 
-impl Error for ReadVarintError {}
+impl error::Error for ReadVarintError {}
 
 pub struct BitWriter<'a> {
     data_bits: usize,
@@ -123,7 +122,7 @@ impl<'a> BitWriter<'a> {
             // SAFETY: transmuting data into a slice of u64s is safe here because BitWriter
             // requires the input data to be 8-byte aligned, which is enforced by the debug_assert
             // above.
-            data: unsafe { std::mem::transmute(&mut *buf) },
+            data: unsafe { mem::transmute(&mut *buf) },
             cur_bit: 0,
         }
     }
@@ -150,7 +149,7 @@ impl<'a> BitWriter<'a> {
 
     /// returns a reference to the underlying buffer.
     pub fn get_data(&self) -> &[u8] {
-        unsafe { std::mem::transmute(&*self.data) }
+        unsafe { mem::transmute(&*self.data) }
     }
 
     /// seek to a specific bit.
@@ -322,7 +321,7 @@ impl<'a> BitReader<'a> {
                 // BUT! "unsafe" `unchecked` methods may allow out of bounds reads - that is ub. in
                 // debug builds assertions will yell at you loudly if something is not right, but
                 // those assertions will not be present in release builds.
-                std::mem::transmute::<&[u8], &[u64]>(data)
+                mem::transmute::<&[u8], &[u64]>(data)
             },
             cur_bit: 0,
         }
@@ -530,7 +529,7 @@ impl<'a> BitReader<'a> {
     #[inline(always)]
     unsafe fn read_uvarint_unchecked<T>(&mut self) -> T
     where
-        T: From<u8> + std::ops::BitOrAssign + std::ops::Shl<usize, Output = T>,
+        T: From<u8> + ops::BitOrAssign + ops::Shl<usize, Output = T>,
     {
         let byte = unsafe { self.read_byte_unchecked() };
         if (byte & CONTINUE_BIT) == 0 {
@@ -552,7 +551,7 @@ impl<'a> BitReader<'a> {
     #[inline(always)]
     fn read_uvarint<T>(&mut self) -> Result<T, ReadVarintError>
     where
-        T: From<u8> + std::ops::BitOrAssign + std::ops::Shl<usize, Output = T>,
+        T: From<u8> + ops::BitOrAssign + ops::Shl<usize, Output = T>,
     {
         let byte = self.read_byte().map_err(ReadVarintError::Overflow)?;
         if (byte & CONTINUE_BIT) == 0 {
