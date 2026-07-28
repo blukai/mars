@@ -295,7 +295,12 @@ impl<T> UnmanagedArray<T> {
         //   (somehow? how?).
         //   we can't do exactly copy that.
         self.try_reserve_amortized(alloc, C)?;
-        unsafe { self.as_mut_ptr().cast::<[T; C]>().write(array) };
+        unsafe {
+            self.as_mut_ptr()
+                .add(self.len())
+                .cast::<[T; C]>()
+                .write(array)
+        };
         self.len += C;
         Ok(())
     }

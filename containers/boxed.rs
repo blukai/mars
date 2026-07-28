@@ -103,7 +103,10 @@ impl<T, A: Allocator> Box<[MaybeUninit<T>], A> {
 }
 
 impl<T, A: Allocator> Box<[T], A> {
-    pub fn try_new_uninit_in(len: usize, alloc: A) -> Result<Box<[MaybeUninit<T>], A>, AllocError> {
+    pub fn try_new_uninit_slice_in(
+        len: usize,
+        alloc: A,
+    ) -> Result<Box<[MaybeUninit<T>], A>, AllocError> {
         unsafe {
             let layout = Layout::array::<MaybeUninit<T>>(len).map_err(|_| AllocError)?;
             let ptr = alloc.allocate(layout)?;
@@ -178,8 +181,8 @@ mod oom {
     impl<T, A: Allocator> Box<[T], A> {
         #[track_caller]
         #[inline]
-        pub fn new_uninit_in(len: usize, alloc: A) -> Box<[MaybeUninit<T>], A> {
-            this_is_fine(Self::try_new_uninit_in(len, alloc))
+        pub fn new_uninit_slice_in(len: usize, alloc: A) -> Box<[MaybeUninit<T>], A> {
+            this_is_fine(Self::try_new_uninit_slice_in(len, alloc))
         }
     }
 }
