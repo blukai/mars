@@ -4,10 +4,11 @@ members = [
   "alloc",
   "bitbuf",
   "containers",
+  "dropguard",
   "flag",
+  "fswatch",
   "hash",
   "rangealloc",
-  "dropguard",
   "varint",
 ]
 
@@ -22,10 +23,11 @@ criterion-cycles-per-byte = { version = "0.6.1" }
 alloc = { path = "alloc" }
 bitbuf = { path = "bitbuf" }
 containers = { path = "containers" }
+dropguard = { path = "dropguard" }
 flag = { path = "flag" }
+fswatch = { path = "fswatch" }
 hash = { path = "hash" }
 rangealloc = { path = "rangealloc" }
-dropguard = { path = "dropguard" }
 varint = { path = "varint" }
 
 # workspace above
@@ -44,8 +46,9 @@ path = "lib.rs"
 alloc = { workspace = true }
 bitbuf = { workspace = true }
 containers = { workspace = true }
+dropguard = { workspace = true }
 flag = { workspace = true }
+fswatch = { workspace = true }
 hash = { workspace = true }
 rangealloc = { workspace = true }
-dropguard = { workspace = true }
 varint = { workspace = true }

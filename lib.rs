@@ -3,6 +3,7 @@ pub use bitbuf;
 pub use containers::*;
 pub use dropguard;
 pub use flag;
+pub use fswatch;
 pub use hash::*;
 pub use rangealloc;
 pub use varint;

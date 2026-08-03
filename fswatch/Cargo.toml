@@ -1,0 +1,11 @@
+[package]
+name = "fswatch"
+version = "0.0.0"
+edition.workspace = true
+
+[lib]
+path = "fswatch.rs"
+
+[dependencies]
+alloc = { workspace = true }
+containers = { workspace = true }

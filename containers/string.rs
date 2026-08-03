@@ -102,6 +102,7 @@ impl fmt::Write for Formatter<'_> {
 
 #[derive(Debug)]
 pub enum FromFmtError {
+    // MAYBE: rename Alloc to OutOfMemory?
     Alloc(AllocError),
     Fmt(fmt::Error),
 }

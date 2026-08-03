@@ -14,17 +14,16 @@
 
 ----
 TODO:
-  - simple file watcher. i don't like notify crate. i don't like its dependency
-    on walkdir. i'm not sure i like that it handles crate creation internally
-    without giving any control over it.
-    maybe see https://github.com/focus-editor/focus/blob/fefbb480e593c3aef442d4f4851ef1175a349626/modules/File_Watcher/module.jai
   - improve rangealloc (see TODOs all around it)
   - get rid of NonNull. it does nothing really, except it adds friction.
   - arrays and strings need to be capable of shrinking.
   - consider renaming ArrayMemory into ArrayStorage?
+  - non-linear-realloc hash table or something
+    maybe see https://github.com/dragonflydb/dragonfly/blob/2f4e167bbe6e970b4fe3b49dddf121a23f9a08a3/docs/dashtable.md
 
 ----
   - good overview of different array variants - https://azmr.uk/dyn/
-  - good outline of current problems with Allocator trait - https://shift.click/blog/allocator-trait-talk/
+  - good outline of current problems with Allocator trait -
+    https://shift.click/blog/allocator-trait-talk/
   - good stuff - https://bluuewhale.github.io/posts/concurrent-hashmap-designs/
     all popular rust crates do sharding; they wrap hashbrown or std hashtable.
