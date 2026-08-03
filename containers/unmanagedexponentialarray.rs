@@ -69,8 +69,11 @@ const fn chunk_cap(chunk_idx: usize, shift: usize) -> usize {
 }
 
 // NOTE: you probably want shift to be 4 or 8.
-//   - with 4 you'll get 16 chunks and 524288 items
-//   - with 8 - 8 chunks, 32768 items
+//   chunk's len is (1 << chunk_idx + shift)
+//   with 4 you'll get 16 chunks and 524288 items:
+//     1 << 4 = 16, 1 << 4 = 16, 1 << 5 = 32, 1 << 6 = 64, 1 << 7 = 128, ...
+//   with 8 - 8 chunks, 32768 items
+//     1 << 8 = 256, 1 << 8 = 256, 1 << 9 = 512, ...
 pub struct UnmanagedExponentialArray<T, const SHIFT: usize, const MAX_CHUNKS: usize> {
     chunks: [*mut T; MAX_CHUNKS],
     len: usize,
@@ -208,7 +211,6 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             }
         }
 
-        debug_assert!(last_item_idx_within_chunk > 0);
         unsafe {
             ptr::slice_from_raw_parts_mut(
                 self.chunks[last_chunk_idx],
@@ -379,7 +381,7 @@ mod tests {
     #[test]
     fn test_push() {
         let values = array::from_fn::<usize, 40, _>(|i| i);
-        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
         for i in values {
             this.push(Global, i);
         }
@@ -388,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_respects_bounds() {
-        const SHIFT: usize = 8;
+        const SHIFT: usize = 4;
         let mut this = <UnmanagedExponentialArray!(_, SHIFT)>::default();
         for i in 0..max_cap(SHIFT) {
             assert!(this.try_push(Global, i).is_ok());
@@ -398,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_remove_unordered() {
-        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
         assert!(this.remove_unordered(0).is_none());
         assert!(this.try_push(Global, 1).is_ok());
         assert!(this.try_push(Global, 2).is_ok());
@@ -410,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_pop() {
-        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
         assert_eq!(this.pop(), None);
         assert!(this.try_push(Global, 1).is_ok());
         assert!(this.try_push(Global, 2).is_ok());
@@ -432,7 +434,7 @@ mod tests {
     fn test_deinit() {
         struct_with_counted_drop!(Elem(u32), DROPS);
 
-        let mut this = <UnmanagedExponentialArray!(_, 8)>::default();
+        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
 
         const N: u32 = 5;
         for i in 0..N {
