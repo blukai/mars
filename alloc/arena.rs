@@ -12,7 +12,8 @@ pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 #[non_exhaustive]
 pub struct ArenaCheckpoint {
     region: *mut ArenaRegion,
-    occupied: usize,
+    region_occupied: usize,
+    total_occupied: usize,
 }
 
 struct ArenaRegion {
@@ -37,7 +38,7 @@ pub struct ArenaAllocator<A: Allocator> {
     head: Cell<*mut ArenaRegion>,
     curr: Cell<*mut ArenaRegion>,
     curr_occupied: Cell<usize>,
-    // TODO: track total_occupied.
+    total_occupied: Cell<usize>,
 }
 
 impl<A: Allocator> ArenaAllocator<A> {
@@ -52,6 +53,7 @@ impl<A: Allocator> ArenaAllocator<A> {
             head: Cell::new(null_mut()),
             curr: Cell::new(null_mut()),
             curr_occupied: Cell::new(0),
+            total_occupied: Cell::new(0),
         }
     }
 
@@ -103,6 +105,8 @@ impl<A: Allocator> ArenaAllocator<A> {
                 let next_occupied = curr_occupied + size_including_padding;
                 if next_occupied <= (*curr_ptr).cap {
                     self.curr_occupied.set(next_occupied);
+                    self.total_occupied
+                        .set(self.total_occupied.get() + size_including_padding);
                     return addr_aligned_up as *mut u8;
                 }
 
@@ -131,6 +135,7 @@ impl<A: Allocator> ArenaAllocator<A> {
     pub fn reset(&self) {
         self.curr.set(self.head.get());
         self.curr_occupied.set(0);
+        self.total_occupied.set(0);
     }
 
     pub fn is_this_your_memory<T>(&self, ptr: *const T) -> bool {
@@ -167,7 +172,8 @@ impl<A: Allocator> ArenaAllocator<A> {
     pub fn make_checkpoint(&self) -> ArenaCheckpoint {
         ArenaCheckpoint {
             region: self.curr.get(),
-            occupied: self.curr_occupied.get(),
+            region_occupied: self.curr_occupied.get(),
+            total_occupied: self.total_occupied.get(),
         }
     }
 
@@ -177,12 +183,17 @@ impl<A: Allocator> ArenaAllocator<A> {
         }
         assert!(self.is_this_your_checkoint(&checkpoint));
         self.curr.set(checkpoint.region);
-        self.curr_occupied.set(checkpoint.occupied);
+        self.curr_occupied.set(checkpoint.region_occupied);
+        self.total_occupied.set(checkpoint.total_occupied);
     }
 
     pub fn checkpoint(&self) -> DropGuard<(), impl FnOnce(())> {
         let checkpoint = self.make_checkpoint();
         DropGuard::new(move || self.reset_to_checkpoint(checkpoint))
+    }
+
+    pub fn get_total_occupied(&self) -> usize {
+        self.total_occupied.get()
     }
 }
 
@@ -323,5 +334,18 @@ mod tests {
                 assert_eq!(ptr.align_offset(align), 0);
             }
         }
+    }
+
+    #[test]
+    fn test_tracks_total_occupied_correctly() {
+        let arena = ArenaAllocator::new(crate::Global, Some(size_of::<i32>()));
+        arena.allocate(Layout::new::<i32>());
+        let checkpoint = arena.make_checkpoint();
+        arena.allocate(Layout::new::<i32>());
+        assert_eq!(arena.get_total_occupied(), size_of::<i32>() * 2);
+        arena.reset_to_checkpoint(checkpoint);
+        assert_eq!(arena.get_total_occupied(), size_of::<i32>() * 1);
+        arena.reset();
+        assert_eq!(arena.get_total_occupied(), size_of::<i32>() * 0);
     }
 }
