@@ -326,6 +326,8 @@ impl<T> UnmanagedArray<T> {
     // ----
     // NOTE: below are UnmanagedArray-specific functions
 
+    // MAYBE: unamanged array's leak should perhaps be called to_slice or something?
+    //   but then what if cap > len?
     pub fn leak<'a>(mut self) -> &'a mut [T] {
         unsafe { mem::transmute(self.as_mut_slice()) }
     }

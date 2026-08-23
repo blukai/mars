@@ -155,6 +155,14 @@ impl<A: Allocator> ArenaAllocator<A> {
         }
     }
 
+    pub fn make_checkpoint(&self) -> ArenaCheckpoint {
+        ArenaCheckpoint {
+            region: self.curr.get(),
+            region_occupied: self.curr_occupied.get(),
+            total_occupied: self.total_occupied.get(),
+        }
+    }
+
     fn is_this_your_checkoint(&self, checkpoint: &ArenaCheckpoint) -> bool {
         unsafe {
             let mut cursor = self.head.get();
@@ -166,14 +174,6 @@ impl<A: Allocator> ArenaAllocator<A> {
                 cursor = region.next;
             }
             false
-        }
-    }
-
-    pub fn make_checkpoint(&self) -> ArenaCheckpoint {
-        ArenaCheckpoint {
-            region: self.curr.get(),
-            region_occupied: self.curr_occupied.get(),
-            total_occupied: self.total_occupied.get(),
         }
     }
 
