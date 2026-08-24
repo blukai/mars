@@ -114,6 +114,17 @@ impl<T, A: Allocator> Box<[T], A> {
             Ok(Box::from_raw_in(slice, alloc))
         }
     }
+
+    pub fn try_from_slice_copy_in(slice: &[T], alloc: A) -> Result<Box<[T], A>, AllocError>
+    where
+        T: Copy,
+    {
+        unsafe {
+            let mut this = Self::try_new_uninit_slice_in(slice.len(), alloc)?;
+            ptr::copy_nonoverlapping(slice.as_ptr(), this.as_mut_ptr() as _, slice.len());
+            Ok(this.assume_init())
+        }
+    }
 }
 
 impl<T: ?Sized, A: Allocator> ops::Deref for Box<T, A> {
@@ -183,6 +194,15 @@ mod oom {
         #[inline]
         pub fn new_uninit_slice_in(len: usize, alloc: A) -> Box<[MaybeUninit<T>], A> {
             this_is_fine(Self::try_new_uninit_slice_in(len, alloc))
+        }
+
+        #[track_caller]
+        #[inline]
+        pub fn from_slice_copy_in(slice: &[T], alloc: A) -> Box<[T], A>
+        where
+            T: Copy,
+        {
+            this_is_fine(Self::try_from_slice_copy_in(slice, alloc))
         }
     }
 }
