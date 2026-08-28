@@ -14,12 +14,11 @@
 
 ----
 TODO:
-  - improve rangealloc (see TODOs all around it)
   - get rid of NonNull. it does nothing really, except it adds friction.
   - arrays and strings need to be capable of shrinking.
-  - consider renaming ArrayMemory into ArrayStorage?
   - non-linear-realloc hash table or something
     maybe see https://github.com/dragonflydb/dragonfly/blob/2f4e167bbe6e970b4fe3b49dddf121a23f9a08a3/docs/dashtable.md
+  - move array,string,box tests that came from std into separate'ish files or something
 
 ----
   - good overview of different array variants - https://azmr.uk/dyn/

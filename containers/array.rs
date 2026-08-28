@@ -76,7 +76,7 @@ pub fn grow_cap(
 }
 
 // TODO: get rid of this when `slice_range` feature is stable.
-fn try_range_from_bounds<R>(range: R, bounds: ops::RangeTo<usize>) -> Option<ops::Range<usize>>
+pub fn try_range_from_bounds<R>(range: R, bounds: ops::RangeTo<usize>) -> Option<ops::Range<usize>>
 where
     R: ops::RangeBounds<usize>,
 {

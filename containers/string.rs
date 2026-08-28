@@ -11,6 +11,7 @@ use alloc::{AllocError, Allocator};
 
 use crate::array::{
     Array, ArrayMemory, FixedArrayMemory, InsertError, ResizableArrayMemory, SpillableArrayMemory,
+    try_range_from_bounds,
 };
 use crate::boxed::Box;
 
@@ -320,6 +321,55 @@ impl<M: ArrayMemory<u8>> String<M> {
             Ok(()) => Ok(()),
             Err(InsertError { kind, .. }) => Err(InsertError { kind, value: c }),
         }
+    }
+
+    /// Removes the specified range in the string, and replaces it with the given string. The given
+    /// string doesn't need to be the same length as the range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range has `start_bound > end_bound`, or, if the range is bounded on either end
+    /// and does not lie on a [`char`] boundary.
+    pub fn try_replace_range<R>(&mut self, range: R, replacement: &str) -> Result<(), AllocError>
+    where
+        R: ops::RangeBounds<usize>,
+    {
+        let len = self.len();
+        let ops::Range { start, end } = try_range_from_bounds(range, ..len).expect("invalid range");
+
+        assert!(
+            self.is_char_boundary(start),
+            "start of range should be a character boundary"
+        );
+        assert!(
+            self.is_char_boundary(end),
+            "end of range should be a character boundary"
+        );
+
+        let range_len = end - start;
+        let replacement_len = replacement.len();
+        let tail_len = len - end;
+        if replacement_len > range_len {
+            self.try_reserve_amortized(replacement_len - range_len)?;
+        }
+
+        unsafe {
+            if range_len != replacement_len {
+                ptr::copy(
+                    self.as_ptr().add(end),
+                    self.as_mut_ptr().add(start + replacement_len),
+                    tail_len,
+                );
+            }
+            ptr::copy_nonoverlapping(
+                replacement.as_ptr(),
+                self.as_mut_ptr().add(start),
+                replacement_len,
+            );
+            self.set_len(start + replacement_len + tail_len);
+        }
+
+        Ok(())
     }
 
     // ----
@@ -643,6 +693,15 @@ mod oom {
             }
         }
 
+        #[track_caller]
+        #[inline]
+        pub fn replace_range<R>(&mut self, range: R, replace_with: &str)
+        where
+            R: ops::RangeBounds<usize>,
+        {
+            this_is_fine(self.try_replace_range(range, replace_with))
+        }
+
         // ----
         // construct-from
 
@@ -738,6 +797,13 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_into_boxed_str() {
+        let xs = ResizableString::from_str_in("hello my name is bob", alloc::Global);
+        let ys = xs.into_boxed_str_assume_full();
+        assert_eq!(&*ys, "hello my name is bob");
+    }
+
     // ----
     // NOTE: tests that start with test_std_ are stolen from std.
 
@@ -812,9 +878,138 @@ mod tests {
     }
 
     #[test]
-    fn test_into_boxed_str() {
-        let xs = ResizableString::from_str_in("hello my name is bob", alloc::Global);
-        let ys = xs.into_boxed_str_assume_full();
-        assert_eq!(&*ys, "hello my name is bob");
+    fn test_std_replace_range() {
+        let mut s = ResizableString::from_str_in("Hello, world!", alloc::Global);
+        s.replace_range(7..12, "世界");
+        assert_eq!(s, "Hello, 世界!");
+    }
+
+    #[test]
+    #[should_panic = "start of range should be a character boundary"]
+    fn test_std_replace_range_start_char_boundary() {
+        let mut s = ResizableString::from_str_in("Hello, 世界!", alloc::Global);
+        s.replace_range(8.., "");
+    }
+
+    #[test]
+    #[should_panic = "end of range should be a character boundary"]
+    fn test_std_replace_range_end_char_boundary() {
+        let mut s = ResizableString::from_str_in("Hello, 世界!", alloc::Global);
+        s.replace_range(..8, "");
+    }
+
+    #[test]
+    fn test_std_replace_range_inclusive_range() {
+        let mut v = ResizableString::from_str_in("12345", alloc::Global);
+        v.replace_range(2..=3, "789");
+        assert_eq!(v, "127895");
+        v.replace_range(1..=2, "A");
+        assert_eq!(v, "1A895");
+    }
+
+    #[test]
+    #[should_panic = "invalid range"]
+    // #[should_panic = "range end index 6 out of range for slice of length 5"]
+    fn test_std_replace_range_out_of_bounds() {
+        let mut s = ResizableString::from_str_in("12345", alloc::Global);
+        s.replace_range(5..6, "789");
+    }
+
+    #[test]
+    #[should_panic = "invalid range"]
+    // #[should_panic = "range end index 5 out of range for slice of length 5"]
+    fn test_std_replace_range_inclusive_out_of_bounds() {
+        let mut s = ResizableString::from_str_in("12345", alloc::Global);
+        s.replace_range(5..=5, "789");
+    }
+
+    // The overflowed index value is target-dependent,
+    // so we don't check for its exact value in the panic message
+    #[test]
+    #[should_panic = "invalid range"]
+    // #[should_panic = "out of range for slice of length 3"]
+    fn test_std_replace_range_start_overflow() {
+        use std::ops::Bound::*;
+
+        let mut s = ResizableString::from_str_in("123", alloc::Global);
+        s.replace_range((Excluded(usize::MAX), Included(0)), "");
+    }
+
+    // The overflowed index value is target-dependent,
+    // so we don't check for its exact value in the panic message
+    #[test]
+    #[should_panic = "invalid range"]
+    // #[should_panic = "out of range for slice of length 3"]
+    fn test_std_replace_range_end_overflow() {
+        use std::ops::Bound::*;
+
+        let mut s = ResizableString::from_str_in("456", alloc::Global);
+        s.replace_range((Included(0), Included(usize::MAX)), "");
+    }
+
+    #[test]
+    fn test_std_replace_range_empty() {
+        let mut s = ResizableString::from_str_in("12345", alloc::Global);
+        s.replace_range(1..2, "");
+        assert_eq!(s, "1345");
+    }
+
+    #[test]
+    fn test_std_replace_range_unbounded() {
+        let mut s = ResizableString::from_str_in("12345", alloc::Global);
+        s.replace_range(.., "");
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn test_std_replace_range_evil_start_bound() {
+        use std::cell::Cell;
+        use std::ops::{Bound, RangeBounds};
+
+        struct EvilRange(Cell<bool>);
+
+        impl RangeBounds<usize> for EvilRange {
+            fn start_bound(&self) -> Bound<&usize> {
+                Bound::Included(if self.0.get() {
+                    &1
+                } else {
+                    self.0.set(true);
+                    &0
+                })
+            }
+            fn end_bound(&self) -> Bound<&usize> {
+                Bound::Unbounded
+            }
+        }
+
+        let mut s = ResizableString::from_str_in("🦀", alloc::Global);
+        s.replace_range(EvilRange(Cell::new(false)), "");
+        assert_eq!(Ok(""), str::from_utf8(s.as_bytes()));
+    }
+
+    #[test]
+    fn test_std_replace_range_evil_end_bound() {
+        use std::cell::Cell;
+        use std::ops::{Bound, RangeBounds};
+
+        struct EvilRange(Cell<bool>);
+
+        impl RangeBounds<usize> for EvilRange {
+            fn start_bound(&self) -> Bound<&usize> {
+                Bound::Included(&0)
+            }
+            fn end_bound(&self) -> Bound<&usize> {
+                Bound::Excluded(if self.0.get() {
+                    &3
+                } else {
+                    self.0.set(true);
+                    &4
+                })
+            }
+        }
+
+        let mut s = ResizableString::from_str_in("🦀", alloc::Global);
+        s.replace_range(EvilRange(Cell::new(false)), "");
+        assert_eq!(Ok(""), str::from_utf8(s.as_bytes()));
     }
 }
