@@ -5,11 +5,12 @@ use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 pub use core::str::Utf8Error;
 use core::{borrow, cmp, mem, ops, ptr, slice};
+use std::mem::MaybeUninit;
 
 use alloc::{AllocError, Allocator};
 
 use crate::array::{
-    Array, ArrayMemory, FixedArrayMemory, ResizableArrayMemory, SpillableArrayMemory,
+    Array, ArrayMemory, FixedArrayMemory, InsertError, ResizableArrayMemory, SpillableArrayMemory,
 };
 use crate::boxed::Box;
 
@@ -278,6 +279,47 @@ impl<M: ArrayMemory<u8>> String<M> {
     #[inline]
     pub fn clear(&mut self) {
         self.0.clear()
+    }
+
+    #[inline]
+    pub fn try_insert_str<'a>(
+        &mut self,
+        index: usize,
+        s: &'a str,
+    ) -> Result<(), InsertError<&'a str>> {
+        assert!(self.is_char_boundary(index));
+
+        let len = self.len();
+        if index > self.len() {
+            return Err(InsertError::new_oob(index, len, s));
+        }
+
+        let s_len = s.len();
+        if let Err(alloc_error) = self.try_reserve_amortized(s_len) {
+            return Err(InsertError::new_oom(alloc_error, s));
+        }
+
+        unsafe {
+            ptr::copy(
+                self.as_ptr().add(index),
+                self.as_mut_ptr().add(index + s_len),
+                len - index,
+            );
+            ptr::copy_nonoverlapping(s.as_ptr(), self.as_mut_ptr().add(index), s_len);
+            self.set_len(len + s_len);
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    pub fn try_insert_char(&mut self, index: usize, c: char) -> Result<(), InsertError<char>> {
+        let mut buf = const { MaybeUninit::<[u8; size_of::<char>()]>::uninit() };
+        let s = unsafe { c.encode_utf8(buf.assume_init_mut()) };
+        match self.try_insert_str(index, s) {
+            Ok(()) => Ok(()),
+            Err(InsertError { kind, .. }) => Err(InsertError { kind, value: c }),
+        }
     }
 
     // ----
@@ -583,6 +625,24 @@ mod oom {
             this_is_fine(self.try_push_char(c))
         }
 
+        #[track_caller]
+        #[inline]
+        pub fn insert_str(&mut self, index: usize, s: &str) {
+            match self.try_insert_str(index, s) {
+                Ok(..) => {}
+                Err(err) => err.panic(),
+            }
+        }
+
+        #[track_caller]
+        #[inline]
+        pub fn insert_char(&mut self, index: usize, c: char) {
+            match self.try_insert_char(index, c) {
+                Ok(..) => {}
+                Err(err) => err.panic(),
+            }
+        }
+
         // ----
         // construct-from
 
@@ -720,6 +780,26 @@ mod tests {
         s.clear();
         assert_eq!(s.len(), 0);
         assert_eq!(s, "");
+    }
+
+    #[test]
+    fn insert() {
+        let mut s = ResizableString::from_str_in("foobar", alloc::Global);
+        s.insert_char(0, 'ệ');
+        assert_eq!(s, "ệfoobar");
+        s.insert_char(6, 'ย');
+        assert_eq!(s, "ệfooยbar");
+    }
+
+    #[test]
+    #[should_panic]
+    fn insert_bad1() {
+        ResizableString::from_str_in("", alloc::Global).insert_char(1, 't');
+    }
+    #[test]
+    #[should_panic]
+    fn insert_bad2() {
+        ResizableString::from_str_in("ệ", alloc::Global).insert_char(1, 't');
     }
 
     #[test]

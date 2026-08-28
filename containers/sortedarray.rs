@@ -5,8 +5,7 @@ use core::{fmt, mem};
 use alloc::{AllocError, Allocator};
 
 use crate::array::{
-    Array, ArrayMemory, FixedArrayMemory, InsertError, InsertErrorKind, ResizableArrayMemory,
-    SpillableArrayMemory,
+    Array, ArrayMemory, FixedArrayMemory, InsertError, ResizableArrayMemory, SpillableArrayMemory,
 };
 
 // NOTE: this can be used instead of hashmap.
@@ -278,7 +277,7 @@ impl_partial_eq_for_set! {
 
 #[cfg(not(no_global_oom_handling))]
 mod oom {
-    use alloc::{eek, this_is_fine};
+    use alloc::this_is_fine;
 
     use super::*;
 
@@ -288,14 +287,7 @@ mod oom {
         pub fn insert(&mut self, key: K, value: V) -> Option<V> {
             match self.try_insert(key, value) {
                 Ok(maybe_existing) => maybe_existing,
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfMemory(alloc_error),
-                    ..
-                }) => eek(alloc_error),
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfBounds { index, len },
-                    ..
-                }) => panic!("out of bounds (index {index}, len {len})"),
+                Err(err) => err.panic(),
             }
         }
 
@@ -331,14 +323,7 @@ mod oom {
         pub fn insert(&mut self, value: T) {
             match self.try_insert(value) {
                 Ok(..) => {}
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfMemory(alloc_error),
-                    ..
-                }) => eek(alloc_error),
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfBounds { index, len },
-                    ..
-                }) => panic!("out of bounds (index {index}, len {len})"),
+                Err(err) => err.panic(),
             }
         }
 

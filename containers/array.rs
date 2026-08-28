@@ -7,7 +7,7 @@ use core::ptr::{self, NonNull};
 use core::{borrow, cmp, fmt, ops, slice};
 use std::io;
 
-use alloc::{AllocError, Allocator};
+use alloc::{AllocError, Allocator, eek};
 use dropguard::DropGuard;
 
 use crate::boxed::Box;
@@ -158,6 +158,20 @@ impl<T> InsertError<T> {
 
     pub fn new_oom(alloc_error: AllocError, value: T) -> Self {
         Self::new(InsertErrorKind::OutOfMemory(alloc_error), value)
+    }
+
+    #[track_caller]
+    pub fn panic(&self) -> ! {
+        match self {
+            InsertError {
+                kind: InsertErrorKind::OutOfMemory(alloc_error),
+                ..
+            } => eek(*alloc_error),
+            InsertError {
+                kind: InsertErrorKind::OutOfBounds { index, len },
+                ..
+            } => panic!("out of bounds (index {index}, len {len})"),
+        }
     }
 }
 
@@ -1040,14 +1054,7 @@ mod oom {
         pub fn insert(&mut self, index: usize, value: T) {
             match self.try_insert(index, value) {
                 Ok(..) => {}
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfMemory(alloc_error),
-                    ..
-                }) => eek(alloc_error),
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfBounds { index, len },
-                    ..
-                }) => panic!("out of bounds (index {index}, len {len})"),
+                Err(err) => err.panic(),
             }
         }
 

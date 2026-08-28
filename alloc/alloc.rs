@@ -25,7 +25,6 @@ pub const fn align_up(value: usize, align: usize) -> usize {
 // NOTE(blukai): whoever calls eek must be annotated with #[track_caller].
 //   this allows to immediately reveal who oomed.
 //   :TrackOomCallerLocation
-#[cfg(not(no_global_oom_handling))]
 #[cold]
 #[track_caller]
 pub fn eek(_err: AllocError) -> ! {
@@ -36,7 +35,6 @@ pub fn eek(_err: AllocError) -> ! {
 
 // NOTE(blukai): whoever calls eek must be annotated with #[track_caller].
 //   :TrackOomCallerLocation
-#[cfg(not(no_global_oom_handling))]
 #[track_caller]
 #[inline(always)]
 pub fn this_is_fine<T>(result: Result<T, AllocError>) -> T {

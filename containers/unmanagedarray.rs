@@ -5,7 +5,7 @@ use core::{borrow, fmt, ops, slice};
 
 use alloc::{AllocError, Allocator};
 
-use crate::array::{GrowthMode, InsertError, InsertErrorKind, PushError, PushErrorKind, grow_cap};
+use crate::array::{GrowthMode, InsertError, PushError, PushErrorKind, grow_cap};
 
 pub struct UnmanagedArray<T> {
     cap: usize,
@@ -214,17 +214,11 @@ impl<T> UnmanagedArray<T> {
     ) -> Result<(), InsertError<T>> {
         let len = self.len();
         if index > self.len() {
-            return Err(InsertError {
-                kind: InsertErrorKind::OutOfBounds { index, len },
-                value,
-            });
+            return Err(InsertError::new_oob(index, len, value));
         }
 
         if let Err(alloc_error) = self.try_reserve_amortized(alloc, 1) {
-            return Err(InsertError {
-                kind: InsertErrorKind::OutOfMemory(alloc_error),
-                value,
-            });
+            return Err(InsertError::new_oom(alloc_error, value));
         }
 
         unsafe {
@@ -423,14 +417,7 @@ mod oom {
         pub fn insert(&mut self, alloc: impl Allocator, index: usize, value: T) {
             match self.try_insert(alloc, index, value) {
                 Ok(..) => {}
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfMemory(alloc_error),
-                    ..
-                }) => eek(alloc_error),
-                Err(InsertError {
-                    kind: InsertErrorKind::OutOfBounds { index, len },
-                    ..
-                }) => panic!("out of bounds (index {index}, len {len})"),
+                Err(err) => err.panic(),
             }
         }
 
