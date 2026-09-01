@@ -293,6 +293,13 @@ mod tests {
             assert_eq!(temp.get_total_occupied(), size_of::<()>());
             temp.reset();
         }
+
+        // empty slice
+        {
+            let empty_byte_slice: &[u8] = &[];
+            temp.allocate(Layout::for_value(empty_byte_slice));
+            assert_eq!(temp.get_total_occupied(), 0);
+        }
     }
 
     #[test]
