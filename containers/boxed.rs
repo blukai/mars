@@ -84,6 +84,16 @@ impl<T, A: Allocator> Box<T, A> {
         Ok(unsafe { Box::from_raw_in(ptr.as_ptr(), alloc) })
     }
 
+    pub fn try_new_zeroed_in(alloc: A) -> Result<Box<MaybeUninit<T>, A>, AllocError> {
+        let ptr = if Self::is_zst() {
+            NonNull::dangling()
+        } else {
+            let layout = Layout::new::<MaybeUninit<T>>();
+            alloc.allocate_zeroed(layout)?.cast()
+        };
+        Ok(unsafe { Box::from_raw_in(ptr.as_ptr(), alloc) })
+    }
+
     #[inline]
     pub fn try_new_in(value: T, alloc: A) -> Result<Self, AllocError> {
         let this = Self::try_new_uninit_in(alloc)?;
@@ -110,6 +120,18 @@ impl<T, A: Allocator> Box<[T], A> {
         unsafe {
             let layout = Layout::array::<MaybeUninit<T>>(len).map_err(|_| AllocError)?;
             let ptr = alloc.allocate(layout)?;
+            let slice = slice::from_raw_parts_mut(ptr.cast::<MaybeUninit<T>>().as_ptr(), len);
+            Ok(Box::from_raw_in(slice, alloc))
+        }
+    }
+
+    pub fn try_new_zeroed_slice_in(
+        len: usize,
+        alloc: A,
+    ) -> Result<Box<[MaybeUninit<T>], A>, AllocError> {
+        unsafe {
+            let layout = Layout::array::<MaybeUninit<T>>(len).map_err(|_| AllocError)?;
+            let ptr = alloc.allocate_zeroed(layout)?;
             let slice = slice::from_raw_parts_mut(ptr.cast::<MaybeUninit<T>>().as_ptr(), len);
             Ok(Box::from_raw_in(slice, alloc))
         }
@@ -184,6 +206,12 @@ mod oom {
 
         #[track_caller]
         #[inline]
+        pub fn new_zeroed_in(alloc: A) -> Box<MaybeUninit<T>, A> {
+            this_is_fine(Self::try_new_zeroed_in(alloc))
+        }
+
+        #[track_caller]
+        #[inline]
         pub fn new_in(value: T, alloc: A) -> Self {
             this_is_fine(Self::try_new_in(value, alloc))
         }
@@ -194,6 +222,12 @@ mod oom {
         #[inline]
         pub fn new_uninit_slice_in(len: usize, alloc: A) -> Box<[MaybeUninit<T>], A> {
             this_is_fine(Self::try_new_uninit_slice_in(len, alloc))
+        }
+
+        #[track_caller]
+        #[inline]
+        pub fn new_zeroed_slice_in(len: usize, alloc: A) -> Box<[MaybeUninit<T>], A> {
+            this_is_fine(Self::try_new_zeroed_slice_in(len, alloc))
         }
 
         #[track_caller]
