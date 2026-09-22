@@ -210,14 +210,19 @@ pub type SpillableBitArray<const N: usize, A: Allocator> =
 #[macro_export]
 macro_rules! __FixedBitArray {
     ($bits:expr) => {
-        FixedBitArray<{ ($bits + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS }>
+        $crate::bitarray::FixedBitArray::<
+            { ($bits + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS },
+        >
     };
 }
 
 #[macro_export]
 macro_rules! __SpillableBitArray {
     ($bits:expr, $alloc:ty) => {
-        SpillableBitArray<{ ($bits + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS }, $alloc>
+        $crate::bitarray::SpillableBitArray<
+            { ($bits + $crate::bitarray::INDEX_MASK) / $crate::bitarray::SLOT_BITS },
+            $alloc,
+        >
     };
 }
 
