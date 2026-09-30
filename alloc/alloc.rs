@@ -6,11 +6,13 @@ pub use allocator_api2::alloc::{AllocError, Allocator, Global, System};
 pub use arena::*;
 pub use erased::*;
 pub use fixed::*;
+pub use noop::*;
 pub use temp::*;
 
 mod arena;
 mod erased;
 mod fixed;
+mod noop;
 mod temp;
 
 #[inline]
