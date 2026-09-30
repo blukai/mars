@@ -1,12 +1,12 @@
 use core::alloc::Layout;
 use core::mem::{ManuallyDrop, MaybeUninit};
 use core::ptr::NonNull;
-use core::{fmt, mem, ops, ptr, slice};
+use core::{fmt, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
 pub struct Box<T: ?Sized, A: Allocator> {
-    ptr: NonNull<T>,
+    ptr: *mut T,
     alloc: A,
 }
 
@@ -19,35 +19,29 @@ impl<T: ?Sized, A: Allocator> Box<T, A> {
     /// For ZSTs, `raw` must be a dangling, well aligned pointer.
     #[inline]
     pub const unsafe fn from_raw_in(ptr: *mut T, alloc: A) -> Self {
-        Self {
-            // SAFETY: by the safety preconditions of this function, `ptr` is not a null pointer.
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-            alloc,
-        }
+        Self { ptr, alloc }
     }
 
     #[inline]
     pub fn as_ptr(this: &Self) -> *const T {
-        this.ptr.as_ptr()
+        this.ptr
     }
 
     #[inline]
     pub fn as_mut_ptr(this: &Self) -> *mut T {
-        this.ptr.as_ptr()
+        this.ptr
     }
 
     /// NOTE: this will not run the destructor of `T`.
     #[inline]
     pub fn into_raw_with_alloc(this: Self) -> (*mut T, A) {
-        let mut this = ManuallyDrop::new(this);
-        let ptr = this.ptr.as_ptr();
-        let alloc = unsafe { (&raw mut this.alloc).read() };
-        (ptr, alloc)
+        let this = ManuallyDrop::new(this);
+        unsafe { (this.ptr, ptr::read(&this.alloc)) }
     }
 
     pub fn leak_with_alloc<'a>(this: Self) -> (&'a mut T, A) {
         let mut this = ManuallyDrop::new(this);
-        unsafe { (mem::transmute(this.ptr.as_mut()), ptr::read(&this.alloc)) }
+        unsafe { (&mut *this.ptr, ptr::read(&this.alloc)) }
     }
 }
 
@@ -57,12 +51,12 @@ impl<T, A: Allocator> Box<MaybeUninit<T>, A> {
     /// Callers must ensure that the value inside of `b` is in an initialized state.
     pub unsafe fn assume_init(self) -> Box<T, A> {
         let (ptr, alloc) = Box::into_raw_with_alloc(self);
-        unsafe { Box::from_raw_in(ptr.cast(), alloc) }
+        unsafe { Box::from_raw_in(ptr as *mut T, alloc) }
     }
 
     pub fn write(self, value: T) -> Box<T, A> {
         unsafe {
-            (self.ptr.cast()).write(value);
+            (self.ptr as *mut T).write(value);
             self.assume_init()
         }
     }
@@ -76,22 +70,22 @@ impl<T, A: Allocator> Box<T, A> {
 
     pub fn try_new_uninit_in(alloc: A) -> Result<Box<MaybeUninit<T>, A>, AllocError> {
         let ptr = if Self::is_zst() {
-            NonNull::dangling()
+            ptr::dangling_mut()
         } else {
             let layout = Layout::new::<MaybeUninit<T>>();
-            alloc.allocate(layout)?.cast()
+            alloc.allocate(layout)?.as_ptr() as *mut MaybeUninit<T>
         };
-        Ok(unsafe { Box::from_raw_in(ptr.as_ptr(), alloc) })
+        unsafe { Ok(Box::from_raw_in(ptr, alloc)) }
     }
 
     pub fn try_new_zeroed_in(alloc: A) -> Result<Box<MaybeUninit<T>, A>, AllocError> {
         let ptr = if Self::is_zst() {
-            NonNull::dangling()
+            ptr::dangling_mut()
         } else {
             let layout = Layout::new::<MaybeUninit<T>>();
-            alloc.allocate_zeroed(layout)?.cast()
+            alloc.allocate_zeroed(layout)?.as_ptr() as *mut MaybeUninit<T>
         };
-        Ok(unsafe { Box::from_raw_in(ptr.as_ptr(), alloc) })
+        unsafe { Ok(Box::from_raw_in(ptr, alloc)) }
     }
 
     #[inline]
@@ -106,7 +100,7 @@ impl<T, A: Allocator> Box<[MaybeUninit<T>], A> {
         unsafe {
             let len = self.len();
             let (ptr, alloc) = Box::into_raw_with_alloc(self);
-            let slice = slice::from_raw_parts_mut(ptr.cast::<T>(), len);
+            let slice = slice::from_raw_parts_mut(ptr as *mut T, len);
             Box::from_raw_in(slice, alloc)
         }
     }
@@ -120,7 +114,7 @@ impl<T, A: Allocator> Box<[T], A> {
         unsafe {
             let layout = Layout::array::<MaybeUninit<T>>(len).map_err(|_| AllocError)?;
             let ptr = alloc.allocate(layout)?;
-            let slice = slice::from_raw_parts_mut(ptr.cast::<MaybeUninit<T>>().as_ptr(), len);
+            let slice = slice::from_raw_parts_mut(ptr.as_ptr() as *mut MaybeUninit<T>, len);
             Ok(Box::from_raw_in(slice, alloc))
         }
     }
@@ -132,7 +126,7 @@ impl<T, A: Allocator> Box<[T], A> {
         unsafe {
             let layout = Layout::array::<MaybeUninit<T>>(len).map_err(|_| AllocError)?;
             let ptr = alloc.allocate_zeroed(layout)?;
-            let slice = slice::from_raw_parts_mut(ptr.cast::<MaybeUninit<T>>().as_ptr(), len);
+            let slice = slice::from_raw_parts_mut(ptr.as_ptr() as *mut MaybeUninit<T>, len);
             Ok(Box::from_raw_in(slice, alloc))
         }
     }
@@ -153,13 +147,13 @@ impl<T: ?Sized, A: Allocator> ops::Deref for Box<T, A> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { self.ptr.as_ref() }
+        unsafe { &*self.ptr }
     }
 }
 
 impl<T: ?Sized, A: Allocator> ops::DerefMut for Box<T, A> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { self.ptr.as_mut() }
+        unsafe { &mut *self.ptr }
     }
 }
 
@@ -179,8 +173,9 @@ impl<T: ?Sized, A: Allocator> Drop for Box<T, A> {
     fn drop(&mut self) {
         let layout = Layout::for_value::<T>(self);
         unsafe {
-            self.ptr.drop_in_place();
-            self.alloc.deallocate(self.ptr.cast(), layout)
+            ptr::drop_in_place(self.ptr);
+            self.alloc
+                .deallocate(NonNull::new_unchecked(self.ptr as *mut u8), layout)
         };
     }
 }

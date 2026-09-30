@@ -11,7 +11,7 @@ use crate::panic_bounds_check;
 pub struct UnmanagedArray<T> {
     cap: usize,
     len: usize,
-    ptr: NonNull<T>,
+    ptr: *mut T,
 }
 
 impl<T> UnmanagedArray<T> {
@@ -43,12 +43,12 @@ impl<T> UnmanagedArray<T> {
 
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.ptr.as_ptr(), self.len()) }
+        unsafe { slice::from_raw_parts(self.ptr, self.len()) }
     }
 
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len()) }
+        unsafe { slice::from_raw_parts_mut(self.ptr, self.len()) }
     }
 
     #[inline]
@@ -57,7 +57,7 @@ impl<T> UnmanagedArray<T> {
         // SAFETY: the memory between `self.len` and `self.cap` is guaranteed to be allocated
         // and valid, but uninitialized.
         unsafe {
-            let ptr = self.as_mut_ptr().add(len).cast::<MaybeUninit<T>>();
+            let ptr = self.as_mut_ptr().add(len) as *mut MaybeUninit<T>;
             slice::from_raw_parts_mut(ptr, self.cap() - len)
         }
     }
@@ -76,16 +76,21 @@ impl<T> UnmanagedArray<T> {
 
         let new_layout = Layout::array::<T>(new_cap).map_err(|_| AllocError)?;
         let new_ptr = if new_cap > 0 {
-            let old_layout = unsafe { Layout::array::<T>(old_cap).unwrap_unchecked() };
-            debug_assert_eq!(old_layout.align(), new_layout.align());
-            unsafe { alloc.grow(self.ptr.cast(), old_layout, new_layout) }
+            unsafe {
+                let old_layout = Layout::array::<T>(old_cap).unwrap_unchecked();
+                debug_assert_eq!(old_layout.align(), new_layout.align());
+                alloc.grow(
+                    NonNull::new_unchecked(self.ptr as *mut u8),
+                    old_layout,
+                    new_layout,
+                )
+            }
         } else {
             debug_assert!(new_layout.size() > 0);
             alloc.allocate(new_layout)
-        }?
-        .cast();
+        }?;
 
-        self.ptr = new_ptr;
+        self.ptr = new_ptr.as_ptr() as *mut T;
         self.cap = new_cap;
 
         Ok(())
@@ -112,7 +117,9 @@ impl<T> UnmanagedArray<T> {
     pub unsafe fn push_within_cap_unchecked(&mut self, value: T) {
         let spare = self.spare_cap_mut();
         // SAFETY: by the safety requirements, `spare` is non-empty.
-        unsafe { spare.get_unchecked_mut(0).write(value) };
+        unsafe {
+            spare.get_unchecked_mut(0).write(value);
+        }
         self.len += 1;
     }
 
@@ -121,19 +128,20 @@ impl<T> UnmanagedArray<T> {
         if self.cap() == self.len() {
             return Some(value);
         }
-        unsafe { self.push_within_cap_unchecked(value) };
+        unsafe {
+            self.push_within_cap_unchecked(value);
+        }
         None
     }
 
     #[inline]
     pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<(), PushError<T>> {
         if let Err(alloc_error) = self.try_reserve_amortized(alloc, 1) {
-            return Err(PushError {
-                kind: PushErrorKind::OutOfMemory(alloc_error),
-                value,
-            });
+            return Err(PushError::new_oom(alloc_error, value));
         }
-        unsafe { self.push_within_cap_unchecked(value) };
+        unsafe {
+            self.push_within_cap_unchecked(value);
+        }
         Ok(())
     }
 
@@ -174,7 +182,7 @@ impl<T> UnmanagedArray<T> {
         unsafe {
             let to_drop = ptr::slice_from_raw_parts_mut(self.as_mut_ptr().add(len), count);
             self.len = len;
-            to_drop.drop_in_place();
+            ptr::drop_in_place(to_drop);
         }
     }
 
@@ -227,7 +235,7 @@ impl<T> UnmanagedArray<T> {
             if index < len {
                 // shift everything to make space
                 // NOTE: this makes the indexth item exist in two places (temporarily).
-                ptr.copy_to(ptr.add(1), len - index);
+                ptr::copy(ptr, ptr.add(1), len - index);
             }
             ptr.write(value);
             self.len += 1;
@@ -249,7 +257,9 @@ impl<T> UnmanagedArray<T> {
                 let (lower, _) = iter.size_hint();
                 self.try_reserve_amortized(&alloc, lower.saturating_add(1))?;
             }
-            unsafe { self.push_within_cap_unchecked(it) };
+            unsafe {
+                self.push_within_cap_unchecked(it);
+            }
         }
         Ok(())
     }
@@ -266,10 +276,8 @@ impl<T> UnmanagedArray<T> {
         let count = slice.len();
         self.try_reserve_amortized(alloc, count)?;
         unsafe {
-            self.as_mut_ptr()
-                .add(self.len())
-                .copy_from_nonoverlapping(slice.as_ptr(), count)
-        };
+            ptr::copy_nonoverlapping(slice.as_ptr(), self.as_mut_ptr().add(self.len()), count);
+        }
         self.len += count;
         Ok(())
     }
@@ -291,11 +299,9 @@ impl<T> UnmanagedArray<T> {
         //   we can't do exactly copy that.
         self.try_reserve_amortized(alloc, C)?;
         unsafe {
-            self.as_mut_ptr()
-                .add(self.len())
-                .cast::<[T; C]>()
-                .write(array)
-        };
+            let ptr = self.as_mut_ptr().add(self.len()) as *mut [T; C];
+            ptr.write(array);
+        }
         self.len += C;
         Ok(())
     }
@@ -309,13 +315,7 @@ impl<T> UnmanagedArray<T> {
     ///   - `len` must be less than or equal to `cap`.
     #[inline]
     pub unsafe fn from_raw_parts(ptr: *mut T, len: usize, cap: usize) -> Self {
-        Self {
-            cap,
-            len,
-            // SAFETY: by the safety requirements, `ptr` is either dangling or pointing to a valid
-            // memory allocation, allocated with `A`.
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-        }
+        Self { cap, len, ptr }
     }
 
     // ----
@@ -329,9 +329,11 @@ impl<T> UnmanagedArray<T> {
 
     pub fn deinit(&mut self, alloc: impl Allocator) {
         self.clear();
-        let layout = unsafe { Layout::array::<T>(self.cap()).unwrap_unchecked() };
-        // SAFETY: even if T is zst Allocator and ptr is dangling - alloc knows how to handle that.
-        unsafe { alloc.deallocate(self.ptr.cast(), layout) }
+        unsafe {
+            let layout = Layout::array::<T>(self.cap()).unwrap_unchecked();
+            // SAFETY: even if T is zst Allocator and ptr is dangling - alloc knows how to handle that.
+            alloc.deallocate(NonNull::new_unchecked(self.ptr as *mut u8), layout)
+        }
     }
 }
 
@@ -371,7 +373,7 @@ impl<T> Default for UnmanagedArray<T> {
         Self {
             cap: 0,
             len: 0,
-            ptr: NonNull::dangling(),
+            ptr: ptr::dangling_mut(),
         }
     }
 }
