@@ -3,9 +3,9 @@ use core::ffi::CStr;
 use core::fmt::{self, Write as _};
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
-pub use core::str::Utf8Error;
+use core::mem::MaybeUninit;
+use core::str::Utf8Error;
 use core::{borrow, cmp, mem, ops, ptr, slice};
-use std::mem::MaybeUninit;
 
 use alloc::{AllocError, Allocator};
 
@@ -513,11 +513,8 @@ impl<M: ArrayMemory<u8>> fmt::Write for String<M> {
 }
 
 macro_rules! impl_partial_eq {
-    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
-        impl<$($vars)*> PartialEq<$rhs> for $lhs
-        where
-            $($ty: $bound)?
-        {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty) => {
+        impl<$($vars)*> PartialEq<$rhs> for $lhs {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool {
                 PartialEq::eq(&self[..], &other[..])

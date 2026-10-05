@@ -526,11 +526,10 @@ impl<T: fmt::Debug, M: ArrayMemory<T>> fmt::Debug for Array<T, M> {
 }
 
 macro_rules! impl_partial_eq {
-    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty) => {
         impl<T1, T2, $($vars)*> PartialEq<$rhs> for $lhs
         where
             T1: PartialEq<T2>,
-            $($ty: $bound)?
         {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool {

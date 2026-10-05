@@ -82,11 +82,8 @@ impl<M: ArrayMemory<u8>> fmt::Debug for CString<M> {
 }
 
 macro_rules! impl_partial_eq {
-    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
-        impl<$($vars)*> PartialEq<$rhs> for $lhs
-        where
-            $($ty: $bound)?
-        {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty) => {
+        impl<$($vars)*> PartialEq<$rhs> for $lhs {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool {
                 PartialEq::eq(&self, &other)

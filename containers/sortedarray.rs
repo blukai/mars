@@ -186,11 +186,10 @@ impl<K: fmt::Debug, V: fmt::Debug, M: ArrayMemory<(K, V)>> fmt::Debug for Sorted
 //   i did a macro thing because i may want to impl partial eq not only for direct comparison, but
 //   for other rhs variants (same as array has).
 macro_rules! impl_partial_eq_for_map {
-    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty) => {
         impl<K1, V1, K2, V2, $($vars)*> PartialEq<$rhs> for $lhs
         where
             (K1, V1): PartialEq<(K2, V2)>,
-            $($ty: $bound)?
         {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool { self.0[..] == other.0[..] }
@@ -338,11 +337,10 @@ pub type SpillableSortedArraySet<T, const N: usize, A: Allocator> =
 //   i did a macro thing because i may want to impl partial eq not only for direct comparison, but
 //   for other rhs variants (same as array has).
 macro_rules! impl_partial_eq_for_set {
-    ([$($vars:tt)*] $lhs:ty, $rhs:ty $(where $ty:ty: $bound:ident)?) => {
+    ([$($vars:tt)*] $lhs:ty, $rhs:ty) => {
         impl<T1, T2, $($vars)*> PartialEq<$rhs> for $lhs
         where
             T1: PartialEq<T2>,
-            $($ty: $bound)?
         {
             #[inline]
             fn eq(&self, other: &$rhs) -> bool { self.0[..] == other.0[..] }
