@@ -122,24 +122,9 @@ impl fmt::Display for FromFmtError {
 }
 
 pub struct FromUtf8Error<M: ArrayMemory<u8>> {
-    bytes: Array<u8, M>,
-    error: Utf8Error,
-}
-
-impl<M: ArrayMemory<u8>> FromUtf8Error<M> {
-    /// returns a slice of [`u8`]s bytes that were attempted to convert to a `String`.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..]
-    }
-
-    /// returns the bytes that were attempted to convert to a `String`.
-    pub fn into_bytes(self) -> Array<u8, M> {
-        self.bytes
-    }
-
-    pub fn utf8_error(&self) -> Utf8Error {
-        self.error
-    }
+    /// bytes that were attempted to convert to a `String`.
+    pub bytes: Array<u8, M>,
+    pub error: Utf8Error,
 }
 
 impl<M: ArrayMemory<u8>> Error for FromUtf8Error<M> {}
