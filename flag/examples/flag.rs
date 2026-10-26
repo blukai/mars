@@ -30,6 +30,7 @@ fn main() {
     let mut i8_flag = -42_i8;
     let mut custom_flag = None::<Custom>;
     let mut multi_flag = containers::sortedarray::FixedSortedArraySet::<String, 8>::default();
+    let mut fixed_string_flag = containers::string::FixedString::<255>::default();
 
     {
         let mut flag_set = flag::FlagSet::default()
@@ -38,7 +39,8 @@ fn main() {
             .add("f64", &mut f64_flag, "f64 flag")
             .add("i8", &mut i8_flag, "i8 flag")
             .add("custom", &mut custom_flag, "custom flag")
-            .add("multi", &mut multi_flag, "multi flag");
+            .add("multi", &mut multi_flag, "multi flag")
+            .add("fixed-string", &mut fixed_string_flag, "yes");
         match flag_set.parse(std::env::args().skip(1)) {
             flag::ParseOutcome::Ok => {}
             flag::ParseOutcome::Break(flag::ParseBreak::Help) => {
@@ -63,4 +65,5 @@ fn main() {
     println!("i8={i8_flag}");
     println!("custom={custom_flag:?}");
     println!("multi={multi_flag:?}");
+    println!("fixed-string={fixed_string_flag:?}");
 }

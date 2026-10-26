@@ -9,6 +9,7 @@ use std::io;
 use alloc::Allocator;
 use containers::array::ArrayMemory;
 use containers::sortedarray::{SortedArrayCompare, SortedArraySet, SpillableSortedArraySet};
+use containers::string::String;
 
 // NOTE: everything operates on std String here; no CStr, no OsStr, etc.
 //   it's just easier and simpler and cleaner this way.
@@ -16,11 +17,11 @@ use containers::sortedarray::{SortedArrayCompare, SortedArraySet, SpillableSorte
 pub type ValueError = Box<dyn error::Error>;
 
 pub trait Value: fmt::Debug {
-    fn parse(s: String) -> Result<Self, ValueError>
+    fn parse(s: std::string::String) -> Result<Self, ValueError>
     where
         Self: Sized;
 
-    fn assign(&mut self, s: String) -> Result<(), ValueError>;
+    fn assign(&mut self, s: std::string::String) -> Result<(), ValueError>;
 
     fn assign_implicit_true(&mut self) {
         unreachable!();
@@ -39,7 +40,7 @@ pub trait Value: fmt::Debug {
 }
 
 impl Value for bool {
-    fn parse(s: String) -> Result<Self, ValueError>
+    fn parse(s: std::string::String) -> Result<Self, ValueError>
     where
         Self: Sized,
     {
@@ -52,7 +53,7 @@ impl Value for bool {
         }
     }
 
-    fn assign(&mut self, s: String) -> Result<(), ValueError> {
+    fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         Self::parse(s).map(|v| *self = v)
     }
 
@@ -69,14 +70,14 @@ impl Value for bool {
 }
 
 impl<T: Value> Value for Option<T> {
-    fn parse(s: String) -> Result<Self, ValueError>
+    fn parse(s: std::string::String) -> Result<Self, ValueError>
     where
         Self: Sized,
     {
         T::parse(s).map(Some)
     }
 
-    fn assign(&mut self, s: String) -> Result<(), ValueError> {
+    fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         if let Some(inner) = self {
             inner.assign(s)
         } else {
@@ -103,11 +104,11 @@ impl<T: Value> Value for Option<T> {
 macro_rules! impl_value_for_from_borrowed {
     ($t:ty) => {
         impl Value for $t {
-            fn parse(s: String) -> Result<Self, ValueError> {
+            fn parse(s: std::string::String) -> Result<Self, ValueError> {
                 str::FromStr::from_str(s.as_ref()).map_err(ValueError::from)
             }
 
-            fn assign(&mut self, s: String) -> Result<(), ValueError> {
+            fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
                 Self::parse(s).map(|v| *self = v)
             }
         }
@@ -133,33 +134,45 @@ impl_value_for_from_borrowed!(usize);
 macro_rules! impl_value_for_from_owned {
     ($t:ty) => {
         impl Value for $t {
-            fn parse(s: String) -> Result<Self, ValueError> {
+            fn parse(s: std::string::String) -> Result<Self, ValueError> {
                 Ok(<$t>::from(s))
             }
 
-            fn assign(&mut self, s: String) -> Result<(), ValueError> {
+            fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
                 Self::parse(s).map(|v| *self = v)
             }
         }
     };
 }
 
-impl_value_for_from_owned!(String);
+impl_value_for_from_owned!(std::string::String);
 
 impl<T: Value + Ord, M: ArrayMemory<T>> Value for SortedArraySet<T, M> {
-    fn parse(s: String) -> Result<Self, ValueError>
+    fn parse(s: std::string::String) -> Result<Self, ValueError>
     where
         Self: Sized,
     {
         _ = s;
-        // NOTE: this is a developer error.
-        //
-        // MAYBE: can type system can protect from this?
-        unreachable!("{} must be initialized", any::type_name::<Self>());
+        unreachable!();
     }
 
-    fn assign(&mut self, s: String) -> Result<(), ValueError> {
+    fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         T::parse(s).map(|v| self.insert(v))
+    }
+}
+
+impl<M: ArrayMemory<u8>> Value for String<M> {
+    fn parse(s: std::string::String) -> Result<Self, ValueError>
+    where
+        Self: Sized,
+    {
+        _ = s;
+        unreachable!();
+    }
+
+    fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
+        self.clear();
+        self.try_push_str(&s).map_err(Into::into)
     }
 }
 
@@ -178,7 +191,7 @@ fn test_option_is_none() {
 #[derive(Debug)]
 pub enum ParseBreak {
     Help,
-    NonFlag(String),
+    NonFlag(std::string::String),
     // the "--" terminator. see guideline 10 of
     // https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html
     Terminator,
@@ -186,9 +199,9 @@ pub enum ParseBreak {
 
 #[derive(Debug)]
 pub enum ParseError<'a> {
-    InvalidArg(String),
-    InvalidSyntax { arg: String },
-    UnknownFlag { flag_name: String },
+    InvalidArg(std::string::String),
+    InvalidSyntax { arg: std::string::String },
+    UnknownFlag { flag_name: std::string::String },
     MissingValue { flag_name: &'a str },
     CouldNotAssignValue { flag_name: &'a str, err: ValueError },
 }
@@ -241,7 +254,7 @@ fn parse_one<'a, I>(
     flags: &mut [Flag<'a>],
 ) -> Result<ControlFlow<Option<ParseBreak>>, ParseError<'a>>
 where
-    I: Iterator<Item = String>,
+    I: Iterator<Item = std::string::String>,
 {
     let Some(mut arg) = args.next() else {
         return Ok(ControlFlow::Break(None));
@@ -385,7 +398,7 @@ impl<'a> FlagSet<'a> {
     // NOTE: program name must not be included.
     pub fn parse<I>(&mut self, mut args: I) -> ParseOutcome<'a>
     where
-        I: Iterator<Item = String>,
+        I: Iterator<Item = std::string::String>,
     {
         loop {
             match parse_one(&mut args, &mut self.flags.0) {
