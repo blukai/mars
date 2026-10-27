@@ -3,7 +3,7 @@
 //! incorporates tsoding's idea for ignoring flags: <https://github.com/tsoding/flag.h>.
 
 use core::ops::{ControlFlow, Range};
-use core::{any, cmp, error, fmt, str};
+use core::{cmp, error, fmt, str};
 use std::io;
 
 use alloc::Allocator;
@@ -17,10 +17,6 @@ use containers::string::String;
 pub type ValueError = Box<dyn error::Error>;
 
 pub trait Value: fmt::Debug {
-    fn parse(s: std::string::String) -> Result<Self, ValueError>
-    where
-        Self: Sized;
-
     fn assign(&mut self, s: std::string::String) -> Result<(), ValueError>;
 
     fn assign_implicit_true(&mut self) {
@@ -37,22 +33,24 @@ pub trait Value: fmt::Debug {
     fn option_is_none(&self) -> bool {
         false
     }
+
+    // NOTE: for collections you want overridable defaults.
+    //   for example -search-path is a SortedArraySet
+    //     -search-path  where's all the data (default: ["./data"])
+    //   but then if -search-path was given values
+    //     $ .. -search-path=~/data -search-path=./data-new
+    //   you should see
+    //     -search-path  where's all the data (dirty: ["./data-new", "~/data"])
+    fn maybe_empty_collection_of_defaults(&mut self) {}
+}
+
+// NOTE: parse is outside of Value trait because not every Value can be "made" (for example
+// String<M> where M is not Default).
+pub trait ValueParse: Value + Sized {
+    fn parse(s: std::string::String) -> Result<Self, ValueError>;
 }
 
 impl Value for bool {
-    fn parse(s: std::string::String) -> Result<Self, ValueError>
-    where
-        Self: Sized,
-    {
-        // NOTE: all of these variations of true/false are same as in go's flag, see
-        // https://pkg.go.dev/flag#hdr-Command_line_flag_syntax
-        match s.as_ref() {
-            "1" | "t" | "T" | "true" | "TRUE" | "True" => Ok(true),
-            "0" | "f" | "F" | "false" | "FALSE" | "False" => Ok(false),
-            _ => Err(format!("'{s}' could not be parsed as bool").into()),
-        }
-    }
-
     fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         Self::parse(s).map(|v| *self = v)
     }
@@ -69,14 +67,19 @@ impl Value for bool {
     }
 }
 
-impl<T: Value> Value for Option<T> {
-    fn parse(s: std::string::String) -> Result<Self, ValueError>
-    where
-        Self: Sized,
-    {
-        T::parse(s).map(Some)
+impl ValueParse for bool {
+    fn parse(s: std::string::String) -> Result<Self, ValueError> {
+        // NOTE: all of these variations of true/false are same as in go's flag, see
+        // https://pkg.go.dev/flag#hdr-Command_line_flag_syntax
+        match s.as_ref() {
+            "1" | "t" | "T" | "true" | "TRUE" | "True" => Ok(true),
+            "0" | "f" | "F" | "false" | "FALSE" | "False" => Ok(false),
+            _ => Err(format!("'{s}' could not be parsed as bool").into()),
+        }
     }
+}
 
+impl<T: ValueParse> Value for Option<T> {
     fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         if let Some(inner) = self {
             inner.assign(s)
@@ -97,6 +100,12 @@ impl<T: Value> Value for Option<T> {
     }
 }
 
+impl<T: ValueParse> ValueParse for Option<T> {
+    fn parse(s: std::string::String) -> Result<Self, ValueError> {
+        T::parse(s).map(Some)
+    }
+}
+
 // NOTE: i give up on trying to do auto impls purely with trait system.
 //   maybe try again when trait specialization is out.
 
@@ -104,12 +113,14 @@ impl<T: Value> Value for Option<T> {
 macro_rules! impl_value_for_from_borrowed {
     ($t:ty) => {
         impl Value for $t {
-            fn parse(s: std::string::String) -> Result<Self, ValueError> {
-                str::FromStr::from_str(s.as_ref()).map_err(ValueError::from)
-            }
-
             fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
                 Self::parse(s).map(|v| *self = v)
+            }
+        }
+
+        impl ValueParse for $t {
+            fn parse(s: std::string::String) -> Result<Self, ValueError> {
+                str::FromStr::from_str(s.as_ref()).map_err(ValueError::from)
             }
         }
     };
@@ -134,12 +145,14 @@ impl_value_for_from_borrowed!(usize);
 macro_rules! impl_value_for_from_owned {
     ($t:ty) => {
         impl Value for $t {
-            fn parse(s: std::string::String) -> Result<Self, ValueError> {
-                Ok(<$t>::from(s))
-            }
-
             fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
                 Self::parse(s).map(|v| *self = v)
+            }
+        }
+
+        impl ValueParse for $t {
+            fn parse(s: std::string::String) -> Result<Self, ValueError> {
+                Ok(<$t>::from(s))
             }
         }
     };
@@ -147,32 +160,26 @@ macro_rules! impl_value_for_from_owned {
 
 impl_value_for_from_owned!(std::string::String);
 
-impl<T: Value + Ord, M: ArrayMemory<T>> Value for SortedArraySet<T, M> {
-    fn parse(s: std::string::String) -> Result<Self, ValueError>
-    where
-        Self: Sized,
-    {
-        _ = s;
-        unreachable!();
-    }
-
+impl<T: ValueParse + Ord, M: ArrayMemory<T>> Value for SortedArraySet<T, M> {
     fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         T::parse(s).map(|v| self.insert(v))
+    }
+
+    fn maybe_empty_collection_of_defaults(&mut self) {
+        self.0.clear();
     }
 }
 
 impl<M: ArrayMemory<u8>> Value for String<M> {
-    fn parse(s: std::string::String) -> Result<Self, ValueError>
-    where
-        Self: Sized,
-    {
-        _ = s;
-        unreachable!();
-    }
-
     fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
         self.clear();
         self.try_push_str(&s).map_err(Into::into)
+    }
+}
+
+impl<M: ArrayMemory<u8> + Default> ValueParse for String<M> {
+    fn parse(s: std::string::String) -> Result<Self, ValueError> {
+        Self::try_from_str_in(&s, M::default()).map_err(Into::into)
     }
 }
 
@@ -301,14 +308,17 @@ where
     };
 
     macro_rules! assign {
-        ($value:expr) => {
+        ($value:expr) => {{
+            if !flag.dirty {
+                flag.value.maybe_empty_collection_of_defaults();
+            }
             flag.value
                 .assign($value)
                 .map_err(|err| ParseError::CouldNotAssignValue {
                     flag_name: flag.name,
                     err,
                 })
-        };
+        }};
     }
 
     match maybe_value_range {
