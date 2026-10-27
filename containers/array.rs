@@ -862,7 +862,7 @@ impl<T, const N: usize> Default for FixedArrayMemory<T, N> {
     #[inline]
     fn default() -> Self {
         Self {
-            data: unsafe { MaybeUninit::uninit().assume_init() },
+            data: const { unsafe { MaybeUninit::uninit().assume_init() } },
         }
     }
 }
