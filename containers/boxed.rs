@@ -1,7 +1,7 @@
 use core::alloc::Layout;
 use core::mem::{ManuallyDrop, MaybeUninit};
 use core::ptr::NonNull;
-use core::{fmt, ops, ptr, slice};
+use core::{borrow, cmp, fmt, hash, ops, ptr, slice};
 
 use alloc::{AllocError, Allocator};
 
@@ -143,6 +143,14 @@ impl<T, A: Allocator> Box<[T], A> {
     }
 }
 
+impl<A: Allocator> Box<str, A> {
+    pub fn try_from_str_in(s: &str, alloc: A) -> Result<Box<str, A>, AllocError> {
+        let this = Box::try_from_slice_copy_in(s.as_bytes(), alloc)?;
+        let (ptr, alloc) = Box::into_raw_with_alloc(this);
+        unsafe { Ok(Box::from_raw_in(ptr as *mut str, alloc)) }
+    }
+}
+
 impl<T: ?Sized, A: Allocator> ops::Deref for Box<T, A> {
     type Target = T;
 
@@ -183,6 +191,49 @@ impl<T: ?Sized, A: Allocator> Drop for Box<T, A> {
 unsafe impl<T: Send + ?Sized, A: Allocator + Send> Send for Box<T, A> {}
 
 unsafe impl<T: Sync + ?Sized, A: Allocator + Sync> Sync for Box<T, A> {}
+
+impl<T: ?Sized + PartialEq, A: Allocator> PartialEq for Box<T, A> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        PartialEq::eq(&**self, &**other)
+    }
+}
+
+impl<T: ?Sized + Eq, A: Allocator> Eq for Box<T, A> {}
+
+impl<T: ?Sized + PartialOrd, A: Allocator> PartialOrd for Box<T, A> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        PartialOrd::partial_cmp(&**self, &**other)
+    }
+}
+
+impl<T: ?Sized + Ord, A: Allocator> Ord for Box<T, A> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        Ord::cmp(&**self, &**other)
+    }
+}
+
+impl<T: ?Sized + hash::Hash, A: Allocator> hash::Hash for Box<T, A> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
+    }
+}
+
+impl<T: ?Sized, A: Allocator> borrow::Borrow<T> for Box<T, A> {
+    #[inline]
+    fn borrow(&self) -> &T {
+        &**self
+    }
+}
+
+impl<T: ?Sized, A: Allocator> borrow::BorrowMut<T> for Box<T, A> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut T {
+        &mut **self
+    }
+}
 
 // ----
 
@@ -232,6 +283,14 @@ mod oom {
             T: Copy,
         {
             this_is_fine(Self::try_from_slice_copy_in(slice, alloc))
+        }
+    }
+
+    impl<A: Allocator> Box<str, A> {
+        #[track_caller]
+        #[inline]
+        pub fn from_str_in(s: &str, alloc: A) -> Box<str, A> {
+            this_is_fine(Self::try_from_str_in(s, alloc))
         }
     }
 }
