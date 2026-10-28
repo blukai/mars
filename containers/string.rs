@@ -476,9 +476,6 @@ impl<M: ArrayMemory<u8>> borrow::BorrowMut<str> for String<M> {
     }
 }
 
-// NOTE: i removed couple of AsRef (for str, path, osstr and whatnot)
-//   i don't remember why i added those, i clearly don't need them.
-
 impl<M: ArrayMemory<u8> + Default> Default for String<M> {
     #[inline]
     fn default() -> Self {
@@ -553,6 +550,20 @@ impl<M: ArrayMemory<u8>> Hash for String<M> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(self.as_str(), state)
+    }
+}
+
+// NOTE: AsRef<str> is needed for when when you want to pass slice of String<M> into arg that is
+// impl IntoIterator<Item = impl AsRef<str>>.
+//
+//   previously, at some point, i had AsRef impls:
+//     i removed couple of AsRef (for str, path, osstr and whatnot)
+//     i don't remember why i added those, i clearly don't need them.
+//
+//  well, now i know what i need AsRef<str> for.
+impl<M: ArrayMemory<u8>> AsRef<str> for String<M> {
+    fn as_ref(&self) -> &str {
+        self
     }
 }
 
