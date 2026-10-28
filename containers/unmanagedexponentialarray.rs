@@ -294,6 +294,18 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> ops::IndexMut<usize>
     }
 }
 
+// SAFETY: UnmanagedExponentialArray owns T.
+unsafe impl<T: Send, const SHIFT: usize, const MAX_CHUNKS: usize> Send
+    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+{
+}
+
+// SAFETY: UnmanagedExponentialArray owns T.
+unsafe impl<T: Sync, const SHIFT: usize, const MAX_CHUNKS: usize> Sync
+    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+{
+}
+
 pub struct Iter<'a, T: 'a, const SHIFT: usize, const MAX_CHUNKS: usize> {
     arr: *const UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>,
     next_idx: usize,
