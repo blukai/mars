@@ -575,6 +575,7 @@ mod oom {
             }
         }
 
+        #[track_caller]
         #[inline]
         pub fn push(&mut self, alloc: impl Allocator, value: T) -> Handle<T> {
             self.push_with(alloc, |_| value)

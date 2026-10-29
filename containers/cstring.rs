@@ -204,11 +204,13 @@ mod oom {
         // ----
         // construct-from
 
+        #[track_caller]
         #[inline]
         pub fn from_str(s: &str) -> Self {
             Self::from_str_in(s, FixedArrayMemory::default())
         }
 
+        #[track_caller]
         #[inline]
         pub fn from_c_str(s: &CStr) -> Self {
             Self::from_c_str_in(s, FixedArrayMemory::default())

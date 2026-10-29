@@ -726,11 +726,13 @@ mod oom {
         // ----
         // construct-from
 
+        #[track_caller]
         #[inline]
         pub fn from_str(s: &str) -> Self {
             Self::from_str_in(s, FixedArrayMemory::default())
         }
 
+        #[track_caller]
         #[inline]
         pub fn from_format_args(args: fmt::Arguments<'_>) -> Self {
             Self::from_format_args_in(args, FixedArrayMemory::default())
