@@ -136,10 +136,10 @@ impl<T, const LOAD_FACTOR: usize, const SHIFT: usize, const MAX_CHUNKS: usize>
 
         let idx_mask = self.cap() as u64 - 1;
         for chunk_idx in 0..first_unallocated_chunk_idx {
-            let chunk_ptr = self.chunks[chunk_idx];
-            let chunk_cap = chunk_cap(chunk_idx, SHIFT);
-            let chunk = unsafe { slice::from_raw_parts_mut(chunk_ptr, chunk_cap) };
-            for src_entry in chunk {
+            let src_chunk_ptr = self.chunks[chunk_idx];
+            let src_chunk_cap = chunk_cap(chunk_idx, SHIFT);
+            let src_chunk = unsafe { slice::from_raw_parts_mut(src_chunk_ptr, src_chunk_cap) };
+            for src_entry in src_chunk {
                 while (src_entry.hash & TAG_MASK) == TAG_PENDING_REDISTRIBUTION {
                     let hash = src_entry.hash & HASH_MASK;
 
@@ -150,9 +150,11 @@ impl<T, const LOAD_FACTOR: usize, const SHIFT: usize, const MAX_CHUNKS: usize>
                             let (item_idx, _, chunk_idx) = item_loc(idx as usize, SHIFT);
                             let entry_ptr = unsafe { self.chunks[chunk_idx].add(item_idx) };
                             let entry = unsafe { &mut *entry_ptr };
+
                             if entry.hash > HASH_MASK {
                                 break entry;
                             }
+
                             idx = (idx + probe) & idx_mask;
                             probe += 1;
                         }
@@ -193,31 +195,38 @@ impl<T, const LOAD_FACTOR: usize, const SHIFT: usize, const MAX_CHUNKS: usize>
             let (item_idx, _, chunk_idx) = item_loc(idx as usize, SHIFT);
             let entry_ptr = unsafe { self.chunks[chunk_idx].add(item_idx) };
             let entry = unsafe { &mut *entry_ptr };
+
             if entry.hash == hash {
                 if eq(&entry.value, &value) {
                     let old_value = mem::replace(&mut entry.value, value);
                     return Ok((&mut entry.value, Some(old_value)));
                 }
+
                 // MAYBE: count collissions
-            } else if entry.hash == TAG_REMOVED {
+            }
+
+            if entry.hash >= TAG_REMOVED {
+                if entry.hash >= TAG_VACANT {
+                    // NOTE: at this point you know that the given value isn't present.
+                    self.len += 1;
+                    let dst = if maybe_first_tombstone.is_null() {
+                        entry
+                    } else {
+                        self.tombstones -= 1;
+                        unsafe { &mut *maybe_first_tombstone }
+                    };
+                    dst.hash = hash;
+                    unsafe {
+                        ptr::write(&mut dst.value, value);
+                    }
+                    return Ok((&mut dst.value, None));
+                }
+
                 if maybe_first_tombstone.is_null() {
                     maybe_first_tombstone = entry_ptr;
                 }
-            } else if entry.hash >= TAG_VACANT {
-                // NOTE: at this point you know that the given value isn't present.
-                self.len += 1;
-                let dst = if maybe_first_tombstone.is_null() {
-                    entry
-                } else {
-                    self.tombstones -= 1;
-                    unsafe { &mut *maybe_first_tombstone }
-                };
-                dst.hash = hash;
-                unsafe {
-                    ptr::write(&mut dst.value, value);
-                }
-                return Ok((&mut dst.value, None));
             }
+
             idx = (idx + probe) & idx_mask;
             probe += 1;
         }
@@ -225,9 +234,7 @@ impl<T, const LOAD_FACTOR: usize, const SHIFT: usize, const MAX_CHUNKS: usize>
 
     fn find_occupied_entry_ptr(&self, hash: u64, eq: impl Fn(&T) -> bool) -> Option<*mut Entry<T>> {
         // NOTE: at 100 it'll infinite loop.
-        const {
-            assert!(LOAD_FACTOR < 100);
-        }
+        debug_assert!(LOAD_FACTOR < 100);
 
         if self.len() == 0 {
             return None;
@@ -242,14 +249,19 @@ impl<T, const LOAD_FACTOR: usize, const SHIFT: usize, const MAX_CHUNKS: usize>
             let (item_idx, _, chunk_idx) = item_loc(idx as usize, SHIFT);
             let entry_ptr = unsafe { self.chunks[chunk_idx].add(item_idx) };
             let entry = unsafe { &*entry_ptr };
+
             if entry.hash == hash {
                 if eq(&entry.value) {
                     return Some(entry_ptr);
                 }
+
                 // MAYBE: count collissions
-            } else if entry.hash >= TAG_VACANT {
+            }
+
+            if entry.hash >= TAG_VACANT {
                 return None;
             }
+
             idx = (idx + probe) & idx_mask;
             probe += 1;
         }
