@@ -20,56 +20,53 @@ use alloc::{AllocError, Allocator};
 use crate::array::PushError;
 use crate::panic_bounds_check;
 
-#[macro_export]
-macro_rules! __max_chunks {
-    ($shift:expr) => {{
-        let shift: usize = $shift;
+#[inline(always)]
+pub const fn max_chunks(shift: usize) -> usize {
+    debug_assert!(shift > 0);
+    debug_assert!(shift <= usize::BITS as usize >> 1);
 
-        debug_assert!(shift > 0);
-        debug_assert!(shift <= usize::BITS as usize >> 1);
-
-        1 << (usize::BITS.ilog2() - shift.ilog2())
-    }};
+    1 << (usize::BITS.ilog2() - shift.ilog2())
 }
-
-pub use __max_chunks as max_chunks;
 
 #[inline(always)]
 pub const fn max_cap(shift: usize) -> usize {
-    1 << (shift + max_chunks!(shift) - 1)
-}
-
-const fn msb64(n: u64) -> u32 {
-    debug_assert!(n != 0);
-    usize::BITS - 1 - n.leading_zeros()
+    1 << (shift + max_chunks(shift) - 1)
 }
 
 #[inline(always)]
-const fn item_loc(idx: usize, shift: usize) -> (usize, usize, usize) {
+pub const fn chunk_cap(chunk_idx: usize, shift: usize) -> usize {
+    1 << (chunk_idx.saturating_sub(1) + shift)
+}
+
+#[inline(always)]
+pub const fn item_loc(idx: usize, shift: usize) -> (usize, usize, usize) {
     // NOTE: see https://www.youtube.com/watch?v=i-h95QIGchY&t=3724 (with timecode).
+    //
+    //  the original version is:
+    //
+    //   let mut item_idx = idx;
+    //   let mut chunk_cap = 1 << shift;
+    //   let mut chunk_idx = 0;
+    //
+    //   let idx_shift = idx >> shift;
+    //   if idx_shift > 0 {
+    //       chunk_idx = idx_shift.ilog2() as usize;
+    //       chunk_cap = 1 << (chunk_idx + shift);
+    //       item_idx -= chunk_cap;
+    //       chunk_idx += 1;
+    //   }
+    //
+    //   the one below is slightly faster.
 
-    let mut item_idx = idx;
-    let mut chunk_cap = 1 << shift;
-    let mut chunk_idx = 0;
-
-    let idx_shift = idx >> shift;
-    if idx_shift > 0 {
-        chunk_idx = msb64(idx_shift as u64) as usize;
-        chunk_cap = 1 << (chunk_idx + shift);
-        item_idx -= chunk_cap;
-        chunk_idx += 1;
-    }
+    let chunk_idx = (usize::BITS - (idx >> shift).leading_zeros()) as usize;
+    let chunk_cap = chunk_cap(chunk_idx, shift);
+    let item_idx = idx & !chunk_cap;
 
     (item_idx, chunk_cap, chunk_idx)
 }
 
-#[inline(always)]
-const fn chunk_cap(chunk_idx: usize, shift: usize) -> usize {
-    1 << (chunk_idx.saturating_sub(1) + shift)
-}
-
 // NOTE: you probably want shift to be 4 or 8.
-//   chunk's len is (1 << chunk_idx + shift)
+//   chunk's cap is (1 << chunk_idx + shift)
 //   with 4 you'll get 16 chunks and 524288 items:
 //     1 << 4 = 16, 1 << 4 = 16, 1 << 5 = 32, 1 << 6 = 64, 1 << 7 = 128, ...
 //   with 8 - 8 chunks, 32768 items
@@ -85,37 +82,39 @@ pub struct UnmanagedExponentialArray<T, const SHIFT: usize, const MAX_CHUNKS: us
 impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
 {
+    #[inline]
     pub fn cap(&self) -> usize {
-        // NOTE: idk if this would actually inline it?
-        #[inline(always)]
-        fn not_null<T>(ptr: &*mut T) -> bool {
-            !ptr.is_null()
+        for (i, c) in self.chunks.iter().enumerate().rev() {
+            if !c.is_null() {
+                return 1 << (SHIFT + i);
+            }
         }
-        let Some(i) = self.chunks.iter().rposition(not_null) else {
-            return 0;
-        };
-        1 << (SHIFT + i)
+        0
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
+    #[inline]
     pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<(), PushError<T>> {
         let (item_idx, chunk_cap, chunk_idx) = item_loc(self.len(), SHIFT);
 
-        if chunk_idx >= MAX_CHUNKS || item_idx >= chunk_cap {
+        if chunk_idx >= MAX_CHUNKS {
             return Err(PushError::new_oom(AllocError, value));
         }
 
         if self.chunks[chunk_idx].is_null() {
+            debug_assert!(self.chunks[..chunk_idx].iter().all(|it| !it.is_null()));
+
             let Ok(layout) = Layout::array::<T>(chunk_cap) else {
                 return Err(PushError::new_oom(AllocError, value));
             };
             let Ok(ptr) = alloc.allocate(layout) else {
                 return Err(PushError::new_oom(AllocError, value));
             };
-            self.chunks[chunk_idx] = ptr.as_ptr().cast();
+            self.chunks[chunk_idx] = ptr.as_ptr() as *mut T;
 
             #[cfg(debug_assertions)]
             {
@@ -123,6 +122,8 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
                 assert_eq!(self.cap, self.cap());
             }
         }
+
+        debug_assert!(item_idx < chunk_cap);
 
         unsafe {
             self.chunks[chunk_idx].add(item_idx).write(value);
@@ -132,11 +133,13 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         Ok(())
     }
 
+    #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
         let (item_idx, _, chunk_idx) = item_loc(index, SHIFT);
         unsafe { &*self.chunks.get_unchecked(chunk_idx).add(item_idx) }
     }
 
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&T> {
         if index >= self.len() {
             return None;
@@ -144,11 +147,13 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         unsafe { Some(self.get_unchecked(index)) }
     }
 
+    #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
         let (item_idx, _, chunk_idx) = item_loc(index, SHIFT);
         unsafe { &mut *self.chunks.get_unchecked_mut(chunk_idx).add(item_idx) }
     }
 
+    #[inline]
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index >= self.len() {
             return None;
@@ -178,9 +183,10 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             return None;
         }
         unsafe {
+            let last_ptr = self.get_unchecked_mut(len - 1) as *mut _;
             let value_ptr = self.get_unchecked_mut(index) as *mut _;
             let value = ptr::read(value_ptr);
-            ptr::copy(self.get_unchecked_mut(len - 1), value_ptr, 1);
+            ptr::copy(last_ptr, value_ptr, 1);
             self.len -= 1;
             Some(value)
         }
@@ -201,8 +207,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
             return;
         };
 
-        let (last_item_idx_within_chunk, _last_chunk_cap, last_chunk_idx) =
-            item_loc(last_item_idx, SHIFT);
+        let (last_item_idx_within_last_chunk, _, last_chunk_idx) = item_loc(last_item_idx, SHIFT);
 
         for i in 0..last_chunk_idx {
             let chunk_cap = chunk_cap(i, SHIFT);
@@ -214,10 +219,12 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         unsafe {
             ptr::slice_from_raw_parts_mut(
                 self.chunks[last_chunk_idx],
-                last_item_idx_within_chunk + 1,
+                last_item_idx_within_last_chunk + 1,
             )
             .drop_in_place();
         }
+
+        self.len = 0;
     }
 
     pub fn deinit(&mut self, alloc: impl Allocator) {
@@ -238,6 +245,12 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         }
 
         debug_assert!(self.chunks.iter().all(|it| it.is_null()));
+
+        #[cfg(debug_assertions)]
+        {
+            self.cap = 0;
+            assert_eq!(self.cap, self.cap());
+        }
     }
 }
 
@@ -348,7 +361,7 @@ macro_rules! __UnmanagedExponentialArray {
         $crate::unmanagedexponentialarray::UnmanagedExponentialArray<
             $t,
             $shift,
-            { $crate::unmanagedexponentialarray::max_chunks!($shift) },
+            { $crate::unmanagedexponentialarray::max_chunks($shift) },
         >
     };
 }
@@ -431,15 +444,6 @@ mod tests {
         assert_eq!(this.pop(), Some(2));
         assert_eq!(this.pop(), Some(1));
         assert_eq!(this.pop(), None);
-    }
-
-    #[test]
-    fn item_locs_chunk_cap_matches_chunk_cap_xd() {
-        const SHIFT: usize = 4;
-        for i in 0..max_cap(SHIFT) {
-            let (_, chunk_cap_, chunk_idx) = item_loc(i, SHIFT);
-            assert_eq!(chunk_cap_, chunk_cap(chunk_idx, SHIFT));
-        }
     }
 
     #[test]
