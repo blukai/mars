@@ -6,6 +6,7 @@ pub mod sortedarray;
 pub mod string;
 pub mod unmanagedarray;
 pub mod unmanagedexponentialarray;
+pub mod unmanagedexponentialhashtable;
 pub mod unmanagedhandlearray;
 pub mod unmanagedsortedarray;
 

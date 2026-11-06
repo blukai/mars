@@ -12,6 +12,9 @@ dropguard = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+hash = { workspace = true }
+# NOCOMMIT
+hashbrown = { version = "0.17" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_global_oom_handling)'] }

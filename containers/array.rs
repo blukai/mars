@@ -155,6 +155,7 @@ impl<T> InsertError<T> {
         }
     }
 
+    #[cold]
     #[track_caller]
     pub fn panic(&self) -> ! {
         match self {
