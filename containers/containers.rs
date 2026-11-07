@@ -8,6 +8,7 @@ pub mod unmanagedarray;
 pub mod unmanagedexponentialarray;
 pub mod unmanagedexponentialhashtable;
 pub mod unmanagedhandlearray;
+pub mod unmanagedhashtable;
 pub mod unmanagedsortedarray;
 
 #[cfg(test)]
