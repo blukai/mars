@@ -883,6 +883,16 @@ impl<T, const N: usize> FixedArray<T, N> {
             _ty: PhantomData,
         }
     }
+
+    #[inline]
+    pub fn into_inner(self) -> Result<[T; N], Self> {
+        if self.len() == N {
+            let this = ManuallyDrop::new(self);
+            Ok(unsafe { ptr::read(this.as_ptr() as *const [T; N]) })
+        } else {
+            Err(self)
+        }
+    }
 }
 
 impl<T: Clone, const N: usize> Clone for FixedArray<T, N> {
