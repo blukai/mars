@@ -4,7 +4,7 @@ use core::ptr::{self, NonNull, null_mut};
 
 use dropguard::DropGuard;
 
-use crate::{AllocError, Allocator, align_up};
+use crate::{AllocError, Allocator, Global, align_up};
 
 pub const ARENA_DEFAULT_MIN_REGION_SIZE: usize = 8 << 20;
 
@@ -32,7 +32,7 @@ fn make_arena_region_layout_from_cap(cap: usize) -> Layout {
 //
 // TODO: should ArenaAllocator's alignment be configurable (MIN_ALIGN generic param)?
 #[derive(Debug)]
-pub struct ArenaAllocator<A: Allocator> {
+pub struct ArenaAllocator<A: Allocator = Global> {
     backing_alloc: A,
     min_region_size: usize,
     head: Cell<*mut ArenaRegion>,
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_arena() {
-        let arena = ArenaAllocator::<crate::Global>::default();
+        let arena = ArenaAllocator::<Global>::default();
         let layout = Layout::from_size_align(100, 8).unwrap();
         let p1 = arena.allocate(layout);
         let p2 = arena.allocate(layout);
@@ -264,12 +264,12 @@ mod tests {
         unsafe impl Allocator for CountingAllocator {
             fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
                 self.allocs.set(self.allocs.get() + 1);
-                crate::Global.allocate(layout)
+                Global.allocate(layout)
             }
 
             unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
                 self.deallocs.set(self.deallocs.get() + 1);
-                unsafe { crate::Global.deallocate(ptr, layout) };
+                unsafe { Global.deallocate(ptr, layout) };
             }
         }
 
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_post_reset_region_reuse() {
-        let arena = ArenaAllocator::<crate::Global>::default();
+        let arena = ArenaAllocator::<Global>::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let p1 = arena.allocate(layout);
         let p2 = arena.allocate(layout);
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_same_region_reset() {
-        let arena = ArenaAllocator::<crate::Global>::default();
+        let arena = ArenaAllocator::<Global>::default();
         let layout = Layout::from_size_align(64, 8).unwrap();
         let _p1 = arena.allocate(layout);
         let checkpoint = arena.make_checkpoint();
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_multi_region_reset() {
-        let arena = ArenaAllocator::<crate::Global>::default();
+        let arena = ArenaAllocator::<Global>::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let _p1 = arena.allocate(layout);
         let checkpoint = arena.make_checkpoint();
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn test_alignment() {
         for align in [2, 4, 8, 16, 32, 64] {
-            let arena = ArenaAllocator::<crate::Global>::default();
+            let arena = ArenaAllocator::<Global>::default();
             let layout = Layout::from_size_align(align, align).unwrap();
             for _ in 0..1024 {
                 let ptr = arena.allocate(layout);
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_tracks_total_occupied_correctly() {
-        let arena = ArenaAllocator::new(crate::Global, Some(size_of::<i32>()));
+        let arena = ArenaAllocator::new(Global, Some(size_of::<i32>()));
         arena.allocate(Layout::new::<i32>());
         let checkpoint = arena.make_checkpoint();
         arena.allocate(Layout::new::<i32>());
