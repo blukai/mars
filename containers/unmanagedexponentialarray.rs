@@ -20,17 +20,14 @@ use alloc::{AllocError, Allocator};
 use crate::array::PushError;
 use crate::panic_bounds_check;
 
+pub const DEFAULT_SHIFT: usize = 4;
+
 #[inline(always)]
-pub const fn max_chunks(shift: usize) -> usize {
+pub const fn chunk_count(shift: usize) -> usize {
     debug_assert!(shift > 0);
     debug_assert!(shift <= usize::BITS as usize >> 1);
 
     1 << (usize::BITS.ilog2() - shift.ilog2())
-}
-
-#[inline(always)]
-pub const fn max_cap(shift: usize) -> usize {
-    1 << (shift + max_chunks(shift) - 1)
 }
 
 #[inline(always)]
@@ -65,23 +62,50 @@ pub const fn item_loc(idx: usize, shift: usize) -> (usize, usize, usize) {
     (item_idx, chunk_cap, chunk_idx)
 }
 
+#[inline(always)]
+pub const fn max_cap(shift: usize) -> usize {
+    1 << (shift + chunk_count(shift) - 1)
+}
+
 // NOTE: you probably want shift to be 4 or 8.
 //   chunk's cap is (1 << chunk_idx + shift)
 //   with 4 you'll get 16 chunks and 524288 items:
 //     1 << 4 = 16, 1 << 4 = 16, 1 << 5 = 32, 1 << 6 = 64, 1 << 7 = 128, ...
 //   with 8 - 8 chunks, 32768 items
 //     1 << 8 = 256, 1 << 8 = 256, 1 << 9 = 512, ...
-pub struct UnmanagedExponentialArray<T, const SHIFT: usize, const MAX_CHUNKS: usize> {
-    chunks: [*mut T; MAX_CHUNKS],
+pub struct UnmanagedExponentialArray<
+    T,
+    const SHIFT: usize = DEFAULT_SHIFT,
+    const CHUNK_COUNT: usize = { chunk_count(DEFAULT_SHIFT) },
+> {
+    chunks: [*mut T; CHUNK_COUNT],
     len: usize,
 
     #[cfg(debug_assertions)]
     cap: usize,
 }
 
-impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
-    UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+impl<T, const SHIFT: usize, const CHUNK_COUNT: usize>
+    UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>
 {
+    #[inline]
+    pub const fn new() -> Self {
+        const {
+            assert!(
+                CHUNK_COUNT == chunk_count(SHIFT),
+                "supply matching CHUNK_COUNT when overriding SHIFT"
+            );
+        }
+
+        Self {
+            chunks: [null_mut(); CHUNK_COUNT],
+            len: 0,
+
+            #[cfg(debug_assertions)]
+            cap: 0,
+        }
+    }
+
     #[inline]
     pub fn cap(&self) -> usize {
         for (i, c) in self.chunks.iter().enumerate().rev() {
@@ -101,7 +125,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     pub fn try_push(&mut self, alloc: impl Allocator, value: T) -> Result<(), PushError<T>> {
         let (item_idx, chunk_cap, chunk_idx) = item_loc(self.len(), SHIFT);
 
-        if chunk_idx >= MAX_CHUNKS {
+        if chunk_idx >= CHUNK_COUNT {
             return Err(PushError::new_oom(AllocError, value));
         }
 
@@ -161,7 +185,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         unsafe { Some(self.get_unchecked_mut(index)) }
     }
 
-    pub fn iter<'a>(&'a self) -> Iter<'a, T, SHIFT, MAX_CHUNKS> {
+    pub fn iter<'a>(&'a self) -> Iter<'a, T, SHIFT, CHUNK_COUNT> {
         Iter {
             arr: self,
             next_idx: 0,
@@ -169,7 +193,7 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
         }
     }
 
-    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, T, SHIFT, MAX_CHUNKS> {
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, T, SHIFT, CHUNK_COUNT> {
         IterMut {
             arr: self,
             next_idx: 0,
@@ -254,22 +278,14 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize>
     }
 }
 
-impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> Default
-    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
-{
+impl<T> Default for UnmanagedExponentialArray<T> {
     fn default() -> Self {
-        Self {
-            chunks: [null_mut(); MAX_CHUNKS],
-            len: 0,
-
-            #[cfg(debug_assertions)]
-            cap: 0,
-        }
+        Self::new()
     }
 }
 
-impl<T: fmt::Debug, const SHIFT: usize, const MAX_CHUNKS: usize> fmt::Debug
-    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+impl<T: fmt::Debug, const SHIFT: usize, const CHUNK_COUNT: usize> fmt::Debug
+    for UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut l = f.debug_list();
@@ -280,8 +296,8 @@ impl<T: fmt::Debug, const SHIFT: usize, const MAX_CHUNKS: usize> fmt::Debug
     }
 }
 
-impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> ops::Index<usize>
-    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+impl<T, const SHIFT: usize, const CHUNK_COUNT: usize> ops::Index<usize>
+    for UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>
 {
     type Output = T;
 
@@ -294,8 +310,8 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> ops::Index<usize>
     }
 }
 
-impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> ops::IndexMut<usize>
-    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+impl<T, const SHIFT: usize, const CHUNK_COUNT: usize> ops::IndexMut<usize>
+    for UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>
 {
     #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
@@ -308,19 +324,19 @@ impl<T, const SHIFT: usize, const MAX_CHUNKS: usize> ops::IndexMut<usize>
 }
 
 // SAFETY: UnmanagedExponentialArray owns T.
-unsafe impl<T: Send, const SHIFT: usize, const MAX_CHUNKS: usize> Send
-    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+unsafe impl<T: Send, const SHIFT: usize, const CHUNK_COUNT: usize> Send
+    for UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>
 {
 }
 
 // SAFETY: UnmanagedExponentialArray owns T.
-unsafe impl<T: Sync, const SHIFT: usize, const MAX_CHUNKS: usize> Sync
-    for UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>
+unsafe impl<T: Sync, const SHIFT: usize, const CHUNK_COUNT: usize> Sync
+    for UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>
 {
 }
 
-pub struct Iter<'a, T: 'a, const SHIFT: usize, const MAX_CHUNKS: usize> {
-    arr: *const UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>,
+pub struct Iter<'a, T: 'a, const SHIFT: usize, const CHUNK_COUNT: usize> {
+    arr: *const UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>,
     next_idx: usize,
     _marker: PhantomData<&'a ()>,
 }
@@ -336,8 +352,8 @@ impl<'a, T, const SHIFT: usize, const CHUNKS: usize> Iterator for Iter<'a, T, SH
     }
 }
 
-pub struct IterMut<'a, T: 'a, const SHIFT: usize, const MAX_CHUNKS: usize> {
-    arr: *mut UnmanagedExponentialArray<T, SHIFT, MAX_CHUNKS>,
+pub struct IterMut<'a, T: 'a, const SHIFT: usize, const CHUNK_COUNT: usize> {
+    arr: *mut UnmanagedExponentialArray<T, SHIFT, CHUNK_COUNT>,
     next_idx: usize,
     _marker: PhantomData<&'a ()>,
 }
@@ -406,7 +422,7 @@ mod tests {
     #[test]
     fn test_push() {
         let values = array::from_fn::<usize, 40, _>(|i| i);
-        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
+        let mut this = UnmanagedExponentialArray::default();
         for i in values {
             this.push(Global, i);
         }
@@ -415,9 +431,8 @@ mod tests {
 
     #[test]
     fn test_respects_bounds() {
-        const SHIFT: usize = 4;
-        let mut this = <UnmanagedExponentialArray!(_, SHIFT)>::default();
-        for i in 0..max_cap(SHIFT) {
+        let mut this = UnmanagedExponentialArray::default();
+        for i in 0..max_cap(DEFAULT_SHIFT) {
             assert!(this.try_push(Global, i).is_ok());
         }
         assert!(this.try_push(Global, 0).is_err());
@@ -425,7 +440,7 @@ mod tests {
 
     #[test]
     fn test_remove_unordered() {
-        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
+        let mut this = UnmanagedExponentialArray::default();
         assert!(this.remove_unordered(0).is_none());
         assert!(this.try_push(Global, 1).is_ok());
         assert!(this.try_push(Global, 2).is_ok());
@@ -437,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_pop() {
-        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
+        let mut this = UnmanagedExponentialArray::default();
         assert_eq!(this.pop(), None);
         assert!(this.try_push(Global, 1).is_ok());
         assert!(this.try_push(Global, 2).is_ok());
@@ -450,7 +465,7 @@ mod tests {
     fn test_deinit() {
         struct_with_counted_drop!(Elem(u32), DROPS);
 
-        let mut this = <UnmanagedExponentialArray!(_, 4)>::default();
+        let mut this = UnmanagedExponentialArray::default();
 
         const N: u32 = 5;
         for i in 0..N {

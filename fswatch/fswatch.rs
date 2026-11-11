@@ -250,7 +250,7 @@ mod inotify {
     // NOTE: this will never reallocate; arena/bump-friendly stuff.
     pub struct Inotify<A: Allocator> {
         inotify_fd: c_int,
-        watch_descriptors: UnmanagedExponentialArray!(WatchDescriptor, 4),
+        watch_descriptors: UnmanagedExponentialArray<WatchDescriptor>,
         read_buf: &'static mut ReadBuf,
         read_buf_len: u32,
         read_buf_pos: u32,

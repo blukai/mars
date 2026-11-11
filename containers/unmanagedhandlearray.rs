@@ -298,9 +298,6 @@ impl<T> Ticket<T> {
     }
 }
 
-// NOTE: i always stuble upon shit https://github.com/rust-lang/rust/issues/50676
-type Entries<T> = UnmanagedExponentialArray!(Entry<T>, 4);
-
 /// An encapsulated exponential array that allows to refer to items by [`Handle`].
 /// Items are never moved once allocated.
 ///
@@ -317,7 +314,7 @@ type Entries<T> = UnmanagedExponentialArray!(Entry<T>, 4);
 /// - <https://docs.rs/fyrox/latest/fyrox/core/pool/struct.Pool.html>
 #[derive(Debug)]
 pub struct UnmanagedHandleArray<T> {
-    entries: Entries<T>,
+    entries: UnmanagedExponentialArray<Entry<T>>,
     // MAYBE: it might be cheaper to store a free list.
     free_head: Option<u32>,
 }
@@ -326,7 +323,7 @@ pub struct UnmanagedHandleArray<T> {
 impl<T> Default for UnmanagedHandleArray<T> {
     fn default() -> Self {
         Self {
-            entries: Entries::default(),
+            entries: UnmanagedExponentialArray::default(),
             free_head: None,
         }
     }
