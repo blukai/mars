@@ -599,11 +599,6 @@ const _: () = {
 };
 
 impl<const N: usize> FixedString<N> {
-    #[inline]
-    pub fn new_fixed() -> Self {
-        Self::new_in(FixedArrayMemory::default())
-    }
-
     // ----
     // construct-from
 
