@@ -212,10 +212,10 @@ impl<A: Allocator> Drop for ArenaAllocator<A> {
     }
 }
 
-impl<A: Allocator + Default> Default for ArenaAllocator<A> {
+impl Default for ArenaAllocator<Global> {
     #[inline]
     fn default() -> Self {
-        Self::new(A::default(), None)
+        Self::new(Global, None)
     }
 }
 
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_arena() {
-        let arena = ArenaAllocator::<Global>::default();
+        let arena = ArenaAllocator::default();
         let layout = Layout::from_size_align(100, 8).unwrap();
         let p1 = arena.allocate(layout);
         let p2 = arena.allocate(layout);
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_post_reset_region_reuse() {
-        let arena = ArenaAllocator::<Global>::default();
+        let arena = ArenaAllocator::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let p1 = arena.allocate(layout);
         let p2 = arena.allocate(layout);
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_same_region_reset() {
-        let arena = ArenaAllocator::<Global>::default();
+        let arena = ArenaAllocator::default();
         let layout = Layout::from_size_align(64, 8).unwrap();
         let _p1 = arena.allocate(layout);
         let checkpoint = arena.make_checkpoint();
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_multi_region_reset() {
-        let arena = ArenaAllocator::<Global>::default();
+        let arena = ArenaAllocator::default();
         let layout = Layout::from_size_align(900, 8).unwrap();
         let _p1 = arena.allocate(layout);
         let checkpoint = arena.make_checkpoint();
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn test_alignment() {
         for align in [2, 4, 8, 16, 32, 64] {
-            let arena = ArenaAllocator::<Global>::default();
+            let arena = ArenaAllocator::default();
             let layout = Layout::from_size_align(align, align).unwrap();
             for _ in 0..1024 {
                 let ptr = arena.allocate(layout);
