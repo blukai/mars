@@ -108,6 +108,7 @@ impl<T, const SHIFT: usize, const CHUNK_COUNT: usize>
 
     #[inline]
     pub fn cap(&self) -> usize {
+        // TODO: don't recompute cap; store it.
         for (i, c) in self.chunks.iter().enumerate().rev() {
             if !c.is_null() {
                 return 1 << (SHIFT + i);

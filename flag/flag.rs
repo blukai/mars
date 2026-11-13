@@ -162,7 +162,9 @@ impl_value_for_from_owned!(std::string::String);
 
 impl<T: ValueParse + Ord, M: ArrayMemory<T>> Value for SortedArraySet<T, M> {
     fn assign(&mut self, s: std::string::String) -> Result<(), ValueError> {
-        T::parse(s).map(|v| self.insert(v))
+        T::parse(s).map(|v| {
+            self.insert(v);
+        })
     }
 
     fn maybe_empty_collection_of_defaults(&mut self) {

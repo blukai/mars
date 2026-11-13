@@ -1,4 +1,3 @@
-use core::cmp::Ordering;
 use core::{fmt, mem};
 
 use alloc::{AllocError, Allocator};
@@ -21,15 +20,17 @@ impl<K: SortedArrayCompare, V> UnmanagedSortedArrayMap<K, V> {
         alloc: impl Allocator,
         key: K,
         value: V,
-    ) -> Result<Option<V>, InsertError<(K, V)>> {
-        let index = self
-            .0
-            .partition_point(|(k, _)| k.compare(&key) == Ordering::Less);
-        match self.0.get_mut(index) {
-            Some((k, existing)) if (k as &K).compare(&key) == Ordering::Equal => {
-                Ok(Some(mem::replace(existing, value)))
+    ) -> Result<(&mut V, Option<V>), InsertError<(K, V)>> {
+        match self.0.binary_search_by(|(k, _)| k.compare(&key)) {
+            Ok(i) => {
+                let v = unsafe { &mut self.0.get_unchecked_mut(i).1 };
+                let prev = mem::replace(v, value);
+                Ok((v, Some(prev)))
             }
-            _ => self.0.try_insert(alloc, index, (key, value)).map(|_| None),
+            Err(i) => {
+                self.0.try_insert(alloc, i, (key, value))?;
+                Ok((&mut self.0[i].1, None))
+            }
         }
     }
 
@@ -100,14 +101,14 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for UnmanagedSortedArrayMap<K, V> 
 pub struct UnmanagedSortedArraySet<T>(pub UnmanagedArray<T>);
 
 impl<T: SortedArrayCompare> UnmanagedSortedArraySet<T> {
-    // TODO: return true if the set did not previously contain the value.
-    pub fn try_insert(&mut self, alloc: impl Allocator, value: T) -> Result<(), InsertError<T>> {
-        let index = self
-            .0
-            .partition_point(|v| v.compare(&value) == Ordering::Less);
-        match self.0.get(index) {
-            Some(v) if v.compare(&value) == Ordering::Equal => Ok(()),
-            _ => self.0.try_insert(alloc, index, value),
+    /// returns true if the set did not have this value.
+    pub fn try_insert(&mut self, alloc: impl Allocator, value: T) -> Result<bool, InsertError<T>> {
+        match self.0.binary_search_by(|v| v.compare(&value)) {
+            Ok(_) => Ok(false),
+            Err(i) => {
+                self.0.try_insert(alloc, i, value)?;
+                Ok(true)
+            }
         }
     }
 
@@ -169,9 +170,9 @@ mod oom {
     impl<K: SortedArrayCompare, V> UnmanagedSortedArrayMap<K, V> {
         #[track_caller]
         #[inline]
-        pub fn insert(&mut self, alloc: impl Allocator, key: K, value: V) -> Option<V> {
+        pub fn insert(&mut self, alloc: impl Allocator, key: K, value: V) -> (&mut V, Option<V>) {
             match self.try_insert(alloc, key, value) {
-                Ok(maybe_existing) => maybe_existing,
+                Ok(ok) => ok,
                 Err(err) => err.panic(),
             }
         }
@@ -191,11 +192,12 @@ mod oom {
     }
 
     impl<T: SortedArrayCompare> UnmanagedSortedArraySet<T> {
+        /// returns true if the set did not have this value.
         #[track_caller]
         #[inline]
-        pub fn insert(&mut self, alloc: impl Allocator, value: T) {
+        pub fn insert(&mut self, alloc: impl Allocator, value: T) -> bool {
             match self.try_insert(alloc, value) {
-                Ok(..) => {}
+                Ok(ok) => ok,
                 Err(err) => err.panic(),
             }
         }
