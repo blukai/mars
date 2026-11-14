@@ -12,11 +12,15 @@ use crate::array::{
 //   good for small number of pairs.
 //   better then the hashmap for <= 128 items for sure (see benchmark).
 //   - `insert` is o(n);
-//   - `get` performs binary search.
+//   - `find` performs binary search.
 
 // NOTE: i am too lazy to duplicate majority of Array's methods in impls.
 //   feel free to use any non-mutating method of the underlying array(.0);
 //   but mutating it is illegal.
+
+// MAYBE: warn on drop when len > threshold or something?
+// #[cfg(debug_assertions)]
+// const WARN_LEN_GREATER_THEN: usize = 64;
 
 /// you may wish to implement SortedArrayCompare if comparison logic that your SortedArray* type
 /// needs is incompatible with Ord that you may need for other purposes..
@@ -24,10 +28,10 @@ pub trait SortedArrayCompare<K: ?Sized = Self> {
     fn compare(&self, key: &K) -> Ordering;
 }
 
-impl<K: ?Sized, Q: ?Sized> SortedArrayCompare<Q> for K
+impl<K, Q> SortedArrayCompare<Q> for K
 where
-    K: Borrow<Q>,
-    Q: Ord,
+    K: ?Sized + Borrow<Q>,
+    Q: ?Sized + Ord,
 {
     #[inline(always)]
     fn compare(&self, key: &Q) -> Ordering {
@@ -39,61 +43,11 @@ where
 // sorted array map
 
 #[inline(always)]
-pub fn map_is_sorted<K, V>(slice: &[(K, V)]) -> bool
+pub fn map_is_sorted<K, V>(entries: &[(K, V)]) -> bool
 where
     K: SortedArrayCompare,
 {
-    slice.is_sorted_by(
-        #[inline]
-        |(a, _), (b, _)| a.compare(b) != Ordering::Greater,
-    )
-}
-
-#[inline(always)]
-pub fn map_contains<K, V, Q: ?Sized>(slice: &[(K, V)], key: &Q) -> bool
-where
-    K: SortedArrayCompare + SortedArrayCompare<Q>,
-{
-    slice
-        .binary_search_by(
-            #[inline]
-            |(k, _)| k.compare(key),
-        )
-        .is_ok()
-}
-
-#[inline(always)]
-pub fn map_get<'a, K, V, Q: ?Sized>(slice: &'a [(K, V)], key: &Q) -> Option<&'a V>
-where
-    K: SortedArrayCompare + SortedArrayCompare<Q>,
-{
-    slice
-        .binary_search_by(
-            #[inline]
-            |(k, _)| k.compare(key),
-        )
-        .ok()
-        .map(
-            #[inline]
-            |found| unsafe { &slice.get_unchecked(found).1 },
-        )
-}
-
-#[inline(always)]
-pub fn map_get_mut<'a, K, V, Q: ?Sized>(slice: &'a mut [(K, V)], key: &Q) -> Option<&'a mut V>
-where
-    K: SortedArrayCompare + SortedArrayCompare<Q>,
-{
-    slice
-        .binary_search_by(
-            #[inline]
-            |(k, _)| k.compare(key),
-        )
-        .ok()
-        .map(
-            #[inline]
-            |found| unsafe { &mut slice.get_unchecked_mut(found).1 },
-        )
+    entries.is_sorted_by(|(a, _), (b, _)| a.compare(b) != Ordering::Greater)
 }
 
 pub struct SortedArrayMap<K, V, M: ArrayMemory<(K, V)>>(pub Array<(K, V), M>);
@@ -105,13 +59,79 @@ impl<K, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     }
 }
 
+macro_rules! impl_map {
+    ($($header:tt)*) => {
+        $($header)* {
+            /// returns ok if key is found; otherwise err will contain index where it could be inserted.
+            #[inline]
+            pub fn find_index<Q>(&self, key: &Q) -> Result<usize, usize>
+            where
+                K: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                self.0
+                    .binary_search_by(|(k, _)| SortedArrayCompare::compare(k, key.borrow()))
+            }
+
+            #[inline]
+            pub fn contains<Q>(&self, key: &Q) -> bool
+            where
+                K: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                self.find_index(key).is_ok()
+            }
+
+            #[inline]
+            pub fn find<Q>(&self, key: &Q) -> Option<&V>
+            where
+                K: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                match self.find_index(key) {
+                    Ok(i) => Some(unsafe { &self.0.get_unchecked(i).1 }),
+                    Err(_) => None,
+                }
+            }
+
+            #[inline]
+            pub fn find_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+            where
+                K: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                match self.find_index(key) {
+                    Ok(i) => Some(unsafe { &mut self.0.get_unchecked_mut(i).1 }),
+                    Err(_) => None,
+                }
+            }
+
+            #[inline]
+            pub fn remove<Q>(&mut self, key: &Q) -> Option<(K, V)>
+            where
+                K: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                match self.find_index(key) {
+                    Ok(i) => self.0.remove_ordered(i),
+                    Err(_) => None,
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use impl_map;
+
+impl_map!(impl<K, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M>);
+
 impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
     pub fn try_insert(
         &mut self,
         key: K,
         value: V,
     ) -> Result<(&mut V, Option<V>), InsertError<(K, V)>> {
-        match self.0.binary_search_by(|(k, _)| k.compare(&key)) {
+        match self.find_index(&key) {
             Ok(i) => {
                 let v = unsafe { &mut self.0.get_unchecked_mut(i).1 };
                 let prev = mem::replace(v, value);
@@ -119,24 +139,11 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
             }
             Err(i) => {
                 self.0.try_insert(i, (key, value))?;
-                Ok((&mut self.0[i].1, None))
+                let v = unsafe { &mut self.0.get_unchecked_mut(i).1 };
+                Ok((v, None))
             }
         }
     }
-
-    pub fn remove<Q>(&mut self, key: &Q) -> Option<(K, V)>
-    where
-        K: SortedArrayCompare<Q>,
-        Q: ?Sized,
-    {
-        self.0
-            .binary_search_by(|(k, _)| k.compare(key))
-            .ok()
-            .and_then(|found| self.0.remove_ordered(found))
-    }
-
-    // ----
-    // extend from
 
     pub fn try_extend_from_iter<I: Iterator<Item = (K, V)>>(
         &mut self,
@@ -147,31 +154,24 @@ impl<K: SortedArrayCompare, V, M: ArrayMemory<(K, V)>> SortedArrayMap<K, V, M> {
         Ok(())
     }
 
-    // ----
-    // array deviations
-
-    pub fn contains<Q>(&self, key: &Q) -> bool
+    pub fn find_or_try_insert_with<Q, F>(
+        &mut self,
+        key: Q,
+        make_value: F,
+    ) -> Result<&mut V, InsertError<(K, V)>>
     where
         K: SortedArrayCompare<Q>,
-        Q: ?Sized,
+        Q: Into<K>,
+        F: FnOnce() -> V,
     {
-        map_contains(&self.0, key)
-    }
-
-    pub fn get<Q>(&self, key: &Q) -> Option<&V>
-    where
-        K: SortedArrayCompare<Q>,
-        Q: ?Sized,
-    {
-        map_get(&self.0, key)
-    }
-
-    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
-    where
-        K: SortedArrayCompare<Q>,
-        Q: ?Sized,
-    {
-        map_get_mut(&mut self.0, key)
+        let i = match self.find_index(key.borrow()) {
+            Ok(i) => i,
+            Err(i) => {
+                self.0.try_insert(i, (key.into(), make_value()))?;
+                i
+            }
+        };
+        Ok(unsafe { &mut self.0.get_unchecked_mut(i).1 })
     }
 }
 
@@ -231,27 +231,11 @@ pub type SpillableSortedArrayMap<K, V, const N: usize, A: Allocator> =
 // sorted array set
 
 #[inline(always)]
-pub fn set_is_sorted<T>(slice: &[T]) -> bool
+pub fn set_is_sorted<T>(entries: &[T]) -> bool
 where
     T: SortedArrayCompare,
 {
-    slice.is_sorted_by(
-        #[inline]
-        |a, b| a.compare(b) != Ordering::Greater,
-    )
-}
-
-#[inline(always)]
-pub fn set_contains<T, Q: ?Sized>(slice: &[T], value: &Q) -> bool
-where
-    T: SortedArrayCompare + SortedArrayCompare<Q>,
-{
-    slice
-        .binary_search_by(
-            #[inline]
-            |v| v.compare(value),
-        )
-        .is_ok()
+    entries.is_sorted_by(|a, b| a.compare(b) != Ordering::Greater)
 }
 
 pub struct SortedArraySet<T, M: ArrayMemory<T>>(pub Array<T, M>);
@@ -263,10 +247,52 @@ impl<T, M: ArrayMemory<T>> SortedArraySet<T, M> {
     }
 }
 
+macro_rules! impl_set {
+    ($($header:tt)*) => {
+        $($header)* {
+            /// returns ok if key is found; otherwise err will contain index where it could be inserted.
+            #[inline]
+            pub fn find_index<Q>(&self, value: &Q) -> Result<usize, usize>
+            where
+                T: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                self.0
+                    .binary_search_by(|v| SortedArrayCompare::compare(v, value.borrow()))
+            }
+
+            #[inline]
+            pub fn contains<Q>(&self, value: &Q) -> bool
+            where
+                T: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                self.find_index(value).is_ok()
+            }
+
+            #[inline]
+            pub fn remove<Q>(&mut self, value: &Q) -> Option<T>
+            where
+                T: SortedArrayCompare<Q>,
+                Q: ?Sized,
+            {
+                match self.find_index(value) {
+                    Ok(i) => self.0.remove_ordered(i),
+                    Err(_) => None,
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use impl_set;
+
+impl_set!(impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M>);
+
 impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
     /// returns true if the set did not have this value.
     pub fn try_insert(&mut self, value: T) -> Result<bool, InsertError<T>> {
-        match self.0.binary_search_by(|v| v.compare(&value)) {
+        match self.find_index(&value) {
             Ok(_) => Ok(false),
             Err(i) => {
                 self.0.try_insert(i, value)?;
@@ -275,19 +301,6 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         }
     }
 
-    pub fn remove<Q: ?Sized>(&mut self, value: &Q) -> Option<T>
-    where
-        T: SortedArrayCompare<Q>,
-    {
-        self.0
-            .binary_search_by(|v| v.compare(value))
-            .ok()
-            .and_then(|found| self.0.remove_ordered(found))
-    }
-
-    // ----
-    // extend from
-
     pub fn try_extend_from_iter<I: Iterator<Item = T>>(
         &mut self,
         iter: I,
@@ -295,16 +308,6 @@ impl<T: SortedArrayCompare, M: ArrayMemory<T>> SortedArraySet<T, M> {
         self.0.try_extend_from_iter(iter)?;
         self.0.sort_unstable_by(|a, b| a.compare(b));
         Ok(())
-    }
-
-    // ----
-    // array deviations
-
-    pub fn contains<Q: ?Sized>(&self, value: &Q) -> bool
-    where
-        T: SortedArrayCompare<Q>,
-    {
-        set_contains(&self.0, value)
     }
 }
 
@@ -376,13 +379,24 @@ mod oom {
             }
         }
 
-        // ----
-        // extend from
-
         #[track_caller]
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) {
             this_is_fine(self.try_extend_from_iter(iter))
+        }
+
+        #[track_caller]
+        #[inline]
+        pub fn find_or_insert_with<Q, F>(&mut self, key: Q, make_value: F) -> &mut V
+        where
+            K: SortedArrayCompare<Q>,
+            Q: Into<K>,
+            F: FnOnce() -> V,
+        {
+            match self.find_or_try_insert_with(key, make_value) {
+                Ok(ok) => ok,
+                Err(err) => err.panic(),
+            }
         }
     }
 
@@ -412,9 +426,6 @@ mod oom {
                 Err(err) => err.panic(),
             }
         }
-
-        // ----
-        // extend from
 
         #[track_caller]
         #[inline]
@@ -462,7 +473,7 @@ mod tests {
         this.insert(0, "zero");
         this.insert(8, "hachi");
         this.insert(16, "juuroku");
-        assert_eq!(this.get(&8), Some(&"hachi"));
+        assert_eq!(this.find(&8), Some(&"hachi"));
     }
 
     #[test]
@@ -511,6 +522,6 @@ mod tests {
     fn test_map_get_by_str_when_key_is_a_fixed_string() {
         let mut this = FixedSortedArrayMap::<FixedString<16>, _, 2>::default();
         this.insert(FixedString::from_str("zero"), 0);
-        assert_eq!(this.get("zero"), Some(&0));
+        assert_eq!(this.find("zero"), Some(&0));
     }
 }

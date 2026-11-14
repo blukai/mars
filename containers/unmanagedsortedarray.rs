@@ -1,3 +1,4 @@
+use core::borrow::Borrow;
 use core::{fmt, mem};
 
 use alloc::{AllocError, Allocator};
@@ -11,17 +12,16 @@ use crate::unmanagedarray::UnmanagedArray;
 
 pub struct UnmanagedSortedArrayMap<K, V>(pub UnmanagedArray<(K, V)>);
 
-impl<K: SortedArrayCompare, V> UnmanagedSortedArrayMap<K, V> {
-    // NOTE: all of the functions below were copypasted from SortedArray's impl.
-    //   only functions that allocate memory were modified to accept alloc param.
+sortedarray::impl_map!(impl<K, V> UnmanagedSortedArrayMap<K, V>);
 
+impl<K: SortedArrayCompare, V> UnmanagedSortedArrayMap<K, V> {
     pub fn try_insert(
         &mut self,
         alloc: impl Allocator,
         key: K,
         value: V,
     ) -> Result<(&mut V, Option<V>), InsertError<(K, V)>> {
-        match self.0.binary_search_by(|(k, _)| k.compare(&key)) {
+        match self.find_index(&key) {
             Ok(i) => {
                 let v = unsafe { &mut self.0.get_unchecked_mut(i).1 };
                 let prev = mem::replace(v, value);
@@ -29,23 +29,11 @@ impl<K: SortedArrayCompare, V> UnmanagedSortedArrayMap<K, V> {
             }
             Err(i) => {
                 self.0.try_insert(alloc, i, (key, value))?;
-                Ok((&mut self.0[i].1, None))
+                let v = unsafe { &mut self.0.get_unchecked_mut(i).1 };
+                Ok((v, None))
             }
         }
     }
-
-    pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<(K, V)>
-    where
-        K: SortedArrayCompare<Q>,
-    {
-        self.0
-            .binary_search_by(|(k, _)| k.compare(key))
-            .ok()
-            .and_then(|found| self.0.remove_ordered(found))
-    }
-
-    // ----
-    // extend from
 
     pub fn try_extend_from_iter<I: Iterator<Item = (K, V)>>(
         &mut self,
@@ -57,28 +45,25 @@ impl<K: SortedArrayCompare, V> UnmanagedSortedArrayMap<K, V> {
         Ok(())
     }
 
-    // ----
-    // array deviations
-
-    pub fn contains<Q: ?Sized>(&self, key: &Q) -> bool
+    pub fn find_or_try_insert_with<Q, F>(
+        &mut self,
+        alloc: impl Allocator,
+        key: Q,
+        make_value: F,
+    ) -> Result<&mut V, InsertError<(K, V)>>
     where
         K: SortedArrayCompare<Q>,
+        Q: Into<K>,
+        F: FnOnce() -> V,
     {
-        sortedarray::map_contains(&self.0, key)
-    }
-
-    pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
-    where
-        K: SortedArrayCompare<Q>,
-    {
-        sortedarray::map_get(&self.0, key)
-    }
-
-    pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V>
-    where
-        K: SortedArrayCompare<Q>,
-    {
-        sortedarray::map_get_mut(&mut self.0, key)
+        let i = match self.find_index(key.borrow()) {
+            Ok(i) => i,
+            Err(i) => {
+                self.0.try_insert(alloc, i, (key.into(), make_value()))?;
+                i
+            }
+        };
+        Ok(unsafe { &mut self.0.get_unchecked_mut(i).1 })
     }
 }
 
@@ -100,10 +85,12 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for UnmanagedSortedArrayMap<K, V> 
 
 pub struct UnmanagedSortedArraySet<T>(pub UnmanagedArray<T>);
 
+sortedarray::impl_set!(impl<T> UnmanagedSortedArraySet<T>);
+
 impl<T: SortedArrayCompare> UnmanagedSortedArraySet<T> {
     /// returns true if the set did not have this value.
     pub fn try_insert(&mut self, alloc: impl Allocator, value: T) -> Result<bool, InsertError<T>> {
-        match self.0.binary_search_by(|v| v.compare(&value)) {
+        match self.find_index(&value) {
             Ok(_) => Ok(false),
             Err(i) => {
                 self.0.try_insert(alloc, i, value)?;
@@ -111,19 +98,6 @@ impl<T: SortedArrayCompare> UnmanagedSortedArraySet<T> {
             }
         }
     }
-
-    pub fn remove<Q: ?Sized>(&mut self, value: &Q) -> Option<T>
-    where
-        T: SortedArrayCompare<Q>,
-    {
-        self.0
-            .binary_search_by(|v| v.compare(value))
-            .ok()
-            .and_then(|found| self.0.remove_ordered(found))
-    }
-
-    // ----
-    // extend from
 
     pub fn try_extend_from_iter<I: Iterator<Item = T>>(
         &mut self,
@@ -133,16 +107,6 @@ impl<T: SortedArrayCompare> UnmanagedSortedArraySet<T> {
         self.0.try_extend_from_iter(alloc, iter)?;
         self.0.sort_unstable_by(|a, b| a.compare(b));
         Ok(())
-    }
-
-    // ----
-    // array deviations
-
-    pub fn contains<Q: ?Sized>(&self, value: &Q) -> bool
-    where
-        T: SortedArrayCompare<Q>,
-    {
-        sortedarray::set_contains(&self.0, value)
     }
 }
 
@@ -177,9 +141,6 @@ mod oom {
             }
         }
 
-        // ----
-        // extend from
-
         #[track_caller]
         #[inline]
         pub fn extend_from_iter<I: Iterator<Item = (K, V)>>(
@@ -188,6 +149,25 @@ mod oom {
             iter: I,
         ) {
             this_is_fine(self.try_extend_from_iter(alloc, iter))
+        }
+
+        #[track_caller]
+        #[inline]
+        pub fn find_or_insert_with<Q, F>(
+            &mut self,
+            alloc: impl Allocator,
+            key: Q,
+            make_value: F,
+        ) -> &mut V
+        where
+            K: SortedArrayCompare<Q>,
+            Q: Into<K>,
+            F: FnOnce() -> V,
+        {
+            match self.find_or_try_insert_with(alloc, key, make_value) {
+                Ok(ok) => ok,
+                Err(err) => err.panic(),
+            }
         }
     }
 
@@ -201,9 +181,6 @@ mod oom {
                 Err(err) => err.panic(),
             }
         }
-
-        // ----
-        // extend from
 
         #[track_caller]
         #[inline]
@@ -231,7 +208,7 @@ mod tests {
 
         assert!(this.contains(&42));
 
-        assert_eq!(this.get(&27), Some(&1));
+        assert_eq!(this.find(&27), Some(&1));
 
         this.remove(&27);
         assert_eq!(this.0.as_slice(), &[(42, 0), (64, 0)]);
